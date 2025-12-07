@@ -189,45 +189,16 @@ void prepareScroll(int line, const String& txt, int scale) {
   int totalWidthWithSuffix = singleWidth + suffixWidth;
   bool needsScroll = totalWidthWithSuffix > availWidth;
   
-  Serial.print("Line ");
-  Serial.print(line);
-  Serial.print(": '");
-  Serial. print(txt);
-  Serial. print("' width=");
-  Serial.  print(singleWidth);
-  Serial.print(" suffix=");
-  Serial.print(suffixWidth);
-  Serial.print(" total=");
-  Serial.print(totalWidthWithSuffix);
-  Serial. print(" avail=");
-  Serial.print(availWidth);
-  Serial.print(" needsScroll=");
-  Serial.println(needsScroll);
-  
   if (needsScroll) {
-    // Tekst jest za długi - dodaj sufiks i utwórz pętlę
     scrollStates[line].text = txt + String(scrollSuffix) + txt;
-    scrollStates[line]. singleTextWidth = singleWidth;
-    scrollStates[line]. suffixWidth = suffixWidth;
-    scrollStates[line]. scrolling = true;
-    
-    // FORCE RESET - zawsze resetuj gdy zmienia się needsScroll na true
-    scrollStates[line].pos = 0;
-    scrollStates[line].isMoving = false;
-    scrollStates[line].t_start = millis();
-    scrollStates[line].t_last = millis();
-  } else {
-    // Tekst się mieści - BEZ suffiksa, bez przewijania
-    scrollStates[line].text = txt;  // TYLKO tekst, bez " * "
     scrollStates[line].singleTextWidth = singleWidth;
-    scrollStates[line].  suffixWidth = 0;  // Brak suffiksa
-    scrollStates[line]. scrolling = false;  // NIE przewija się
-    
-    // FORCE RESET - zawsze resetuj gdy zmienia się needsScroll na false
-    scrollStates[line].pos = 0;
-    scrollStates[line].isMoving = false;
-    scrollStates[line].t_start = millis();
-    scrollStates[line].t_last = millis();
+    scrollStates[line].suffixWidth = suffixWidth;
+    scrollStates[line].scrolling = true;
+  } else {
+    scrollStates[line].text = txt;
+    scrollStates[line].singleTextWidth = singleWidth;
+    scrollStates[line]. suffixWidth = 0;
+    scrollStates[line].scrolling = false;
   }
 }
 
@@ -236,13 +207,26 @@ void updateScroll(int line) {
   auto& conf = scrollConfs[line];
   auto& state = scrollStates[line];
   
-  if (!  state.scrolling) return;
+  // Jeśli nie przewija, ale jest aktywny - czekaj i przejdź do następnego
+  if (!state.scrolling) {
+    if (line == activeScrollLine) {
+      unsigned long elapsed = now - state.t_start;
+      if (elapsed >= conf.scrolltime) {
+        activeScrollLine = (activeScrollLine + 1) % 3;
+        scrollStates[activeScrollLine].t_start = now;
+        scrollStates[activeScrollLine].t_last = now;
+        scrollStates[activeScrollLine].pos = 0;
+        scrollStates[activeScrollLine].isMoving = false;
+      }
+    }
+    return;
+  }
   
   if (line != activeScrollLine) return;
   
   unsigned long elapsed = now - state.t_start;
   
-  if (state.pos == 0 && !  state.isMoving) {
+  if (state.pos == 0 && ! state.isMoving) {
     if (elapsed >= conf.scrolltime) {
       state.isMoving = true;
       state.t_last = now;
@@ -255,20 +239,18 @@ void updateScroll(int line) {
     
     int resetPos = -(state.singleTextWidth + state.suffixWidth);
     if (state.pos <= resetPos) {
-      state.pos = 0;
+      state. pos = 0;
       state.isMoving = false;
       state.t_start = now;
       
-      // Przejdź do NASTĘPNEJ linii (0 → 1 → 2 → 0...)
-      // BEZ pomijania linii bez przewijania
       activeScrollLine = (activeScrollLine + 1) % 3;
-      
-      // Resetuj timer dla nowej aktywnej linii
       scrollStates[activeScrollLine].t_start = now;
       scrollStates[activeScrollLine].t_last = now;
+      scrollStates[activeScrollLine].pos = 0;
+      scrollStates[activeScrollLine]. isMoving = false;
     }
     
-    state. t_last = now;
+    state.t_last = now;
   }
 }
 
@@ -289,7 +271,6 @@ void drawScrollLine(int line, int scale) {
 void updateDisplay() {
   display.clearDisplay();
 
-  // WIFI CONNECTING - WYŚRODKOWANA ANIMACJA
   if (wifiState == WIFI_CONNECTING) {
     static unsigned long lastAnim = 0;
     static int animStep = 1;
@@ -322,7 +303,6 @@ void updateDisplay() {
     return;
   }
 
-  // WIFI ERROR
   if (wifiState == WIFI_ERROR) {
     bool blink = (millis() % 1000 < 500);
     
@@ -344,15 +324,15 @@ void updateDisplay() {
   const int16_t lineHeight = 16;
   display.fillRect(0, 0, SCREEN_WIDTH, lineHeight, SSD1306_WHITE);
 
-  // === PREPARE SCROLLS ===
+  // === PREPARE SCROLLS - TYLKO PRZY ZMIANIE =====
   if (stacja != prev_stacja) {
     prev_stacja = stacja;
-    // scrollStates[0].pos = 0;
-    // scrollStates[0].t_start = millis();
-    // scrollStates[0].t_last = millis();
-    // scrollStates[0].isMoving = false;
+    scrollStates[0].pos = 0;
+    scrollStates[0].t_start = millis();
+    scrollStates[0].t_last = millis();
+    scrollStates[0].isMoving = false;
+    prepareScroll(0, stacja, scrollConfs[0].fontsize);
   }
-  prepareScroll(0, stacja, scrollConfs[0].fontsize);
 
   if (wykonawca != prev_wykonawca) {
     prev_wykonawca = wykonawca;
@@ -360,8 +340,8 @@ void updateDisplay() {
     scrollStates[1]. t_start = millis();
     scrollStates[1].t_last = millis();
     scrollStates[1].isMoving = false;
+    prepareScroll(1, wykonawca, scrollConfs[1].fontsize);
   }
-  prepareScroll(1, wykonawca, scrollConfs[1].fontsize);
 
   if (utwor != prev_utwor) {
     prev_utwor = utwor;
@@ -369,8 +349,8 @@ void updateDisplay() {
     scrollStates[2].t_start = millis();
     scrollStates[2].t_last = millis();
     scrollStates[2]. isMoving = false;
+    prepareScroll(2, utwor, scrollConfs[2]. fontsize);
   }
-  prepareScroll(2, utwor, scrollConfs[2].fontsize);
 
   // === UPDATE SCROLLS ===
   updateScroll(0);
@@ -403,14 +383,14 @@ void updateDisplay() {
   int batWidth = 20;
   int batHeight = 8;
   display.drawRect(batX, yLine, batWidth, batHeight, SSD1306_WHITE);
-  display. fillRect(batX + batWidth, yLine + 2, 2, batHeight - 4, SSD1306_WHITE);
+  display.fillRect(batX + batWidth, yLine + 2, 2, batHeight - 4, SSD1306_WHITE);
   int fillWidth = (batteryPercent * (batWidth - 2)) / 100;
   if (fillWidth > 0) display.fillRect(batX + 1, yLine + 1, fillWidth, batHeight - 2, SSD1306_WHITE);
 
   int volX = 52;
   display.drawBitmap(volX, yLine, speakerIcon, 8, 8, SSD1306_WHITE);
   display.setCursor(volX + 10, yLine);
-  display.setTextSize(1);
+  display. setTextSize(1);
   display.setTextColor(SSD1306_WHITE);
   display.print(volume);
 
@@ -508,7 +488,6 @@ void setup() {
 void loop() {
   webSocket.loop();
 
-  // WiFi handling
   if (wifiState == WIFI_CONNECTING) {
     if (WiFi.status() == WL_CONNECTED) {
       Serial.println("WiFi connected!");
@@ -540,7 +519,6 @@ void loop() {
 
   updateDisplay();
 
-  // Buttons
   if (millis() - lastButtonCheck > 120) {
     lastButtonCheck = millis();
 
