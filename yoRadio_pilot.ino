@@ -22,6 +22,9 @@
 #define BATTERY_ADC_PIN 13
 #define BATTERY_MIN_MV 3000
 #define BATTERY_MAX_MV 4200
+#define ADC_MAX_VALUE 4095.0
+#define ADC_REF_VOLTAGE 3.3
+#define VOLTAGE_DIVIDER_RATIO 2.0
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 WebSocketsClient webSocket;
@@ -54,6 +57,8 @@ bool lastDownState = HIGH;
 
 unsigned long volUpPressStart = 0;
 unsigned long volDownPressStart = 0;
+unsigned long lastVolUpRepeat = 0;
+unsigned long lastVolDownRepeat = 0;
 const unsigned long VOL_LONG_PRESS_THRESHOLD = 500;
 const unsigned long VOL_REPEAT_INTERVAL = 200;
 
@@ -308,12 +313,13 @@ void drawScrollLine(int line, int scale) {
 int readBatteryPercent() {
   // Read ADC value from GPIO13 (ADC2_CH4)
   // Note: ADC2 may have issues when WiFi is active, but should work for most cases
+  // If reading fails or seems unreliable, it will return a clamped value within 0-100%
   int adcValue = analogRead(BATTERY_ADC_PIN);
   
-  // Convert ADC value to voltage (assuming 12-bit ADC: 0-4095 for 0-3.3V)
+  // Convert ADC value to voltage (12-bit ADC: 0-4095 for 0-3.3V)
   // With 100k+100k voltage divider, actual battery voltage is 2x the measured voltage
-  float measuredVoltage = (adcValue / 4095.0) * 3.3;
-  float batteryVoltage = measuredVoltage * 2.0;
+  float measuredVoltage = (adcValue / ADC_MAX_VALUE) * ADC_REF_VOLTAGE;
+  float batteryVoltage = measuredVoltage * VOLTAGE_DIVIDER_RATIO;
   int batteryMv = (int)(batteryVoltage * 1000);
   
   // Map battery voltage to percentage (3.0V = 0%, 4.2V = 100%)
@@ -628,7 +634,7 @@ void loop() {
     }
   } else if (wifiState == WIFI_ERROR) {
     if (WiFi.status() == WL_CONNECTED) {
-      Serial. println("WiFi reconnected!");
+      Serial.println("WiFi reconnected!");
       wifiState = WIFI_OK;
     }
   }
@@ -663,12 +669,12 @@ void loop() {
         // Initial press - send first command and start tracking
         sendCommand("volp=1");
         volUpPressStart = millis();
+        lastVolUpRepeat = millis();
       } else {
         // Button is held - check for repeat
         unsigned long pressDuration = millis() - volUpPressStart;
         if (pressDuration > VOL_LONG_PRESS_THRESHOLD) {
           // Long press detected - send repeat commands
-          static unsigned long lastVolUpRepeat = 0;
           if (millis() - lastVolUpRepeat >= VOL_REPEAT_INTERVAL) {
             sendCommand("volp=1");
             lastVolUpRepeat = millis();
@@ -683,12 +689,12 @@ void loop() {
         // Initial press - send first command and start tracking
         sendCommand("volm=1");
         volDownPressStart = millis();
+        lastVolDownRepeat = millis();
       } else {
         // Button is held - check for repeat
         unsigned long pressDuration = millis() - volDownPressStart;
         if (pressDuration > VOL_LONG_PRESS_THRESHOLD) {
           // Long press detected - send repeat commands
-          static unsigned long lastVolDownRepeat = 0;
           if (millis() - lastVolDownRepeat >= VOL_REPEAT_INTERVAL) {
             sendCommand("volm=1");
             lastVolDownRepeat = millis();
