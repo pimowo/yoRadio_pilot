@@ -337,8 +337,6 @@ void updateDisplay() {
   bool wsError = !wsConnected || ((millis() - lastWebSocketMessage) > WS_TIMEOUT_MS);
 
   if (wsError) {
-    display.clearDisplay();
-    
     String errorText = "Brak yoRadio!";
     int errorWidth = getPixelWidth5x7(errorText, 1);
     int errorX = (SCREEN_WIDTH - errorWidth) / 2;
@@ -542,8 +540,9 @@ void setup() {
   wifiTimer = millis();
   wifiState = WIFI_CONNECTING;
   
-  // Inicjalizacja timera aktywności
+  // Inicjalizacja timerów
   lastActivityTime = millis();
+  lastWebSocketMessage = millis();
 }
 
 void loop() {
