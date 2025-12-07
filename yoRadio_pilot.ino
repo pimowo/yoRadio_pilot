@@ -21,6 +21,10 @@
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 WebSocketsClient webSocket;
 
+bool wsConnected = false;
+unsigned long lastWsReconnectAttempt = 0;
+const unsigned long wsReconnectInterval = 5000; // 5 seconds
+
 int batteryPercent = 100;
 String meta = "";
 int volume = 0;
@@ -323,6 +327,25 @@ void updateDisplay() {
   }
 
   // MAIN SCREEN (WiFi OK)
+  
+  // Check if WebSocket is disconnected while WiFi is OK
+  if (!wsConnected) {
+    bool blink = (millis() % 1000 < 500);
+    
+    int iconX = (SCREEN_WIDTH - 8) / 2;
+    int iconY = 10;
+    if (blink) display.drawBitmap(iconX, iconY, wifiErrorIcon, 8, 8, SSD1306_WHITE);
+    
+    String errorText = "Brak yoRadio";
+    int errorWidth = getPixelWidth5x7(errorText, 1);
+    int errorX = (SCREEN_WIDTH - errorWidth) / 2;
+    int errorY = 30;
+    drawString5x7(errorX, errorY, errorText, 1, SSD1306_WHITE);
+    
+    display.display();
+    return;
+  }
+  
   const int16_t lineHeight = 16;
   display.fillRect(0, 0, SCREEN_WIDTH, lineHeight, SSD1306_WHITE);
 
@@ -406,6 +429,7 @@ void updateDisplay() {
 void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
   if (type == WStype_CONNECTED) {
     Serial.println("WebSocket connected!");
+    wsConnected = true;
     webSocket.sendTXT("getindex=1");
     return;
   }
@@ -422,8 +446,8 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
       return;
     }
     
-    if (doc. containsKey("payload")) {
-      JsonArray arr = doc["payload"]. as<JsonArray>();
+    if (doc.containsKey("payload")) {
+      JsonArray arr = doc["payload"].as<JsonArray>();
       for (JsonObject obj : arr) {
         String id = obj["id"].as<String>();
         if (id == "nameset") stacja = obj["value"].as<String>();
@@ -450,14 +474,22 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
   
   if (type == WStype_DISCONNECTED) {
     Serial.println("WebSocket disconnected!");
+    wsConnected = false;
+    // Clear display data when disconnected
+    stacja = "";
+    wykonawca = "";
+    utwor = "";
+    bitrate = 0;
   }
 }
 
 void sendCommand(const char* cmd) {
-  if (webSocket.isConnected()) {
+  if (wsConnected && webSocket.isConnected()) {
     webSocket.sendTXT(cmd);
     Serial.print("Sent: ");
     Serial.println(cmd);
+  } else {
+    Serial.println("WebSocket not connected - command not sent");
   }
 }
 
@@ -511,11 +543,25 @@ void loop() {
       Serial.println("WiFi disconnected!");
       wifiState = WIFI_CONNECTING;
       wifiTimer = millis();
+      wsConnected = false;
+    } else {
+      // WiFi is connected, check WebSocket and reconnect if needed
+      if (!wsConnected && !webSocket.isConnected()) {
+        unsigned long now = millis();
+        if (now - lastWsReconnectAttempt >= wsReconnectInterval) {
+          Serial.println("Attempting WebSocket reconnect...");
+          webSocket.disconnect();
+          webSocket.begin(IP_YORADIO, 80, "/ws");
+          webSocket.onEvent(webSocketEvent);
+          lastWsReconnectAttempt = now;
+        }
+      }
     }
   } else if (wifiState == WIFI_ERROR) {
     if (WiFi.status() == WL_CONNECTED) {
-      Serial. println("WiFi reconnected!");
+      Serial.println("WiFi reconnected!");
       wifiState = WIFI_OK;
+      wsConnected = false;
     }
   }
 
@@ -530,8 +576,8 @@ void loop() {
     bool curLeft = digitalRead(BTN_LEFT);
     bool curDown = digitalRead(BTN_DOWN);
 
-    if (curUp == LOW) sendCommand("volp=1");
-    if (curDown == LOW) sendCommand("volm=1");
+    if (curUp == LOW && lastUpState == HIGH) sendCommand("volp=1");
+    if (curDown == LOW && lastDownState == HIGH) sendCommand("volm=1");
 
     if (curCenter == LOW && lastCenterState == HIGH) sendCommand("toggle=1");
     if (curLeft == LOW && lastLeftState == HIGH) sendCommand("prev=1");
