@@ -52,6 +52,11 @@ unsigned long lastVolChange = 0;
 const unsigned long longPressThreshold = 500;  // 500ms
 const unsigned long volRepeatInterval = 200;   // 200ms
 
+const unsigned long BUTTON_CHECK_INTERVAL_MS = 50;  // Fast polling for responsive long press
+const unsigned long BATTERY_READ_INTERVAL_MS = 5000;  // Read battery every 5 seconds
+const unsigned long BLINK_PERIOD_MS = 1000;  // Blink cycle duration
+const unsigned long BLINK_ON_DURATION_MS = 500;  // Blink on duration
+
 unsigned long lastButtonCheck = 0;
 bool lastCenterState = HIGH;
 bool lastLeftState = HIGH;
@@ -345,7 +350,7 @@ void updateDisplay() {
   }
 
   if (wifiState == WIFI_ERROR) {
-    bool blink = (millis() % 1000 < 500);
+    bool blink = (millis() % BLINK_PERIOD_MS < BLINK_ON_DURATION_MS);
     
     int iconX = (SCREEN_WIDTH - 8) / 2;
     int iconY = 10;
@@ -363,7 +368,7 @@ void updateDisplay() {
 
   // Check WebSocket timeout (when WiFi is OK but no messages)
   if (wifiState == WIFI_OK && wsConnected && (millis() - lastWsMessage > wsTimeout)) {
-    bool blink = (millis() % 1000 < 500);
+    bool blink = (millis() % BLINK_PERIOD_MS < BLINK_ON_DURATION_MS);
     
     int iconX = (SCREEN_WIDTH - 8) / 2;
     int iconY = 10;
@@ -594,7 +599,7 @@ void loop() {
 
   // Read battery level periodically
   static unsigned long lastBatteryRead = 0;
-  if (millis() - lastBatteryRead > 5000) {  // Every 5 seconds
+  if (millis() - lastBatteryRead > BATTERY_READ_INTERVAL_MS) {
     lastBatteryRead = millis();
     readBatteryLevel();
   }
@@ -610,7 +615,7 @@ void loop() {
     esp_deep_sleep_start();
   }
 
-  if (millis() - lastButtonCheck > 50) {  // Check buttons every 50ms (faster than 120ms for responsive long press detection)
+  if (millis() - lastButtonCheck > BUTTON_CHECK_INTERVAL_MS) {
     lastButtonCheck = millis();
 
     bool curUp = digitalRead(BTN_UP);
