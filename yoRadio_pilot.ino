@@ -186,37 +186,48 @@ void prepareScroll(int line, const String& txt, int scale) {
   int suffixWidth = getPixelWidth5x7(String(scrollSuffix), scale);
   int availWidth = scrollConfs[line].width;
   
-  // Sprawdzaj szerokość RAZEM z suffixem do porównania
   int totalWidthWithSuffix = singleWidth + suffixWidth;
   bool needsScroll = totalWidthWithSuffix > availWidth;
   
   Serial.print("Line ");
   Serial.print(line);
   Serial.print(": '");
-  Serial.print(txt);
-  Serial.print("' width=");
-  Serial.print(singleWidth);
+  Serial. print(txt);
+  Serial. print("' width=");
+  Serial.  print(singleWidth);
   Serial.print(" suffix=");
   Serial.print(suffixWidth);
   Serial.print(" total=");
   Serial.print(totalWidthWithSuffix);
   Serial. print(" avail=");
   Serial.print(availWidth);
-  Serial. print(" needsScroll=");
+  Serial.print(" needsScroll=");
   Serial.println(needsScroll);
   
   if (needsScroll) {
-    scrollStates[line]. text = txt + String(scrollSuffix) + txt;
-    scrollStates[line].singleTextWidth = singleWidth;
-    scrollStates[line].suffixWidth = suffixWidth;
-    scrollStates[line].scrolling = true;
-  } else {
-    scrollStates[line].text = txt;
-    scrollStates[line].singleTextWidth = singleWidth;
+    // Tekst jest za długi - dodaj sufiks i utwórz pętlę
+    scrollStates[line].text = txt + String(scrollSuffix) + txt;
+    scrollStates[line]. singleTextWidth = singleWidth;
     scrollStates[line]. suffixWidth = suffixWidth;
-    scrollStates[line]. scrolling = false;
+    scrollStates[line]. scrolling = true;
+    
+    // FORCE RESET - zawsze resetuj gdy zmienia się needsScroll na true
     scrollStates[line].pos = 0;
     scrollStates[line].isMoving = false;
+    scrollStates[line].t_start = millis();
+    scrollStates[line].t_last = millis();
+  } else {
+    // Tekst się mieści - BEZ suffiksa, bez przewijania
+    scrollStates[line].text = txt;  // TYLKO tekst, bez " * "
+    scrollStates[line].singleTextWidth = singleWidth;
+    scrollStates[line].  suffixWidth = 0;  // Brak suffiksa
+    scrollStates[line]. scrolling = false;  // NIE przewija się
+    
+    // FORCE RESET - zawsze resetuj gdy zmienia się needsScroll na false
+    scrollStates[line].pos = 0;
+    scrollStates[line].isMoving = false;
+    scrollStates[line].t_start = millis();
+    scrollStates[line].t_last = millis();
   }
 }
 
@@ -225,13 +236,13 @@ void updateScroll(int line) {
   auto& conf = scrollConfs[line];
   auto& state = scrollStates[line];
   
-  if (! state.scrolling) return;
+  if (!  state.scrolling) return;
   
   if (line != activeScrollLine) return;
   
   unsigned long elapsed = now - state.t_start;
   
-  if (state.pos == 0 && ! state.isMoving) {
+  if (state.pos == 0 && !  state.isMoving) {
     if (elapsed >= conf.scrolltime) {
       state.isMoving = true;
       state.t_last = now;
@@ -244,23 +255,20 @@ void updateScroll(int line) {
     
     int resetPos = -(state.singleTextWidth + state.suffixWidth);
     if (state.pos <= resetPos) {
-      state. pos = 0;
+      state.pos = 0;
       state.isMoving = false;
       state.t_start = now;
       
+      // Przejdź do NASTĘPNEJ linii (0 → 1 → 2 → 0...)
+      // BEZ pomijania linii bez przewijania
       activeScrollLine = (activeScrollLine + 1) % 3;
       
-      while (activeScrollLine < 3 && ! scrollStates[activeScrollLine].scrolling) {
-        activeScrollLine = (activeScrollLine + 1) % 3;
-      }
-      
-      if (scrollStates[activeScrollLine].scrolling) {
-        scrollStates[activeScrollLine].t_start = now;
-        scrollStates[activeScrollLine]. t_last = now;
-      }
+      // Resetuj timer dla nowej aktywnej linii
+      scrollStates[activeScrollLine].t_start = now;
+      scrollStates[activeScrollLine].t_last = now;
     }
     
-    state.t_last = now;
+    state. t_last = now;
   }
 }
 
@@ -339,10 +347,10 @@ void updateDisplay() {
   // === PREPARE SCROLLS ===
   if (stacja != prev_stacja) {
     prev_stacja = stacja;
-    scrollStates[0].pos = 0;
-    scrollStates[0].t_start = millis();
-    scrollStates[0].t_last = millis();
-    scrollStates[0].isMoving = false;
+    // scrollStates[0].pos = 0;
+    // scrollStates[0].t_start = millis();
+    // scrollStates[0].t_last = millis();
+    // scrollStates[0].isMoving = false;
   }
   prepareScroll(0, stacja, scrollConfs[0].fontsize);
 
