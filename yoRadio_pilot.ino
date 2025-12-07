@@ -4,6 +4,11 @@
 #include <ArduinoJson.h>
 #include "font5x7.h"
 
+// Sprawdzenie czy stała SSD1306_SETCONTRAST jest zdefiniowana w bibliotece
+#ifndef SSD1306_SETCONTRAST
+#define SSD1306_SETCONTRAST 0x81  // Komenda kontrastu SSD1306 (z datasheet)
+#endif
+
 //==================================================================================================
 // sieć
 #define WIFI_SSID "pimowo"             // sieć 
