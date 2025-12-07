@@ -20,6 +20,13 @@
 
 #define BATTERY_ADC_PIN 34  // GPIO34 (ADC1_CH6)
 
+// Battery monitoring constants
+#define ADC_MAX_VALUE 4095
+#define ADC_REFERENCE_VOLTAGE 3.3
+#define VOLTAGE_DIVIDER_RATIO 2.0
+#define MIN_BATTERY_VOLTAGE_MV 300  // 3.0V in centivolt (x100)
+#define MAX_BATTERY_VOLTAGE_MV 420  // 4.2V in centivolt (x100)
+
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 WebSocketsClient webSocket;
 
@@ -295,10 +302,11 @@ void readBatteryLevel() {
   
   // Convert to voltage
   // ADC reads 0-3.3V, voltage divider (R1=100k, R2=100k) means Vin = 2 * Vout
-  float voltage = (adcValue / 4095.0) * 3.3 * 2.0;
+  float voltage = (adcValue / (float)ADC_MAX_VALUE) * ADC_REFERENCE_VOLTAGE * VOLTAGE_DIVIDER_RATIO;
   
   // Map 3.0V-4.2V to 0-100%
-  batteryPercent = constrain(map((int)(voltage * 100), 300, 420, 0, 100), 0, 100);
+  int voltageInCentivolt = (int)(voltage * 100);
+  batteryPercent = constrain(map(voltageInCentivolt, MIN_BATTERY_VOLTAGE_MV, MAX_BATTERY_VOLTAGE_MV, 0, 100), 0, 100);
 }
 
 void updateDisplay() {
@@ -602,7 +610,7 @@ void loop() {
     esp_deep_sleep_start();
   }
 
-  if (millis() - lastButtonCheck > 50) {  // Check buttons every 50ms
+  if (millis() - lastButtonCheck > 50) {  // Check buttons every 50ms (faster than 120ms for responsive long press detection)
     lastButtonCheck = millis();
 
     bool curUp = digitalRead(BTN_UP);
