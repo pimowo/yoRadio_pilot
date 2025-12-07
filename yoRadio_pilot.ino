@@ -2,6 +2,7 @@
 #include <WebSocketsClient.h>
 #include <Adafruit_SSD1306.h>
 #include <ArduinoJson.h>
+#include <esp_sleep.h>
 #include "font5x7.h"
 
 #define WIFI_SSID "pimowo"
@@ -18,6 +19,10 @@
 #define BTN_LEFT   6
 #define BTN_DOWN   3
 
+#define BATTERY_ADC_PIN 13
+#define BATTERY_MIN_MV 3000
+#define BATTERY_MAX_MV 4200
+
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 WebSocketsClient webSocket;
 
@@ -31,12 +36,26 @@ String stacja = "";
 String wykonawca = "";
 String utwor = "";
 
+bool wsConnected = false;
+unsigned long lastWebSocketMessage = 0;
+unsigned long wsConnectStart = 0;
+const unsigned long WS_CONNECT_TIMEOUT = 5000;
+const unsigned long WS_MESSAGE_TIMEOUT = 10000;
+
+unsigned long lastActivityTime = 0;
+const unsigned long DEEP_SLEEP_TIMEOUT = 15000;
+
 unsigned long lastButtonCheck = 0;
 bool lastCenterState = HIGH;
 bool lastLeftState = HIGH;
 bool lastRightState = HIGH;
 bool lastUpState = HIGH;
 bool lastDownState = HIGH;
+
+unsigned long volUpPressStart = 0;
+unsigned long volDownPressStart = 0;
+const unsigned long VOL_LONG_PRESS_THRESHOLD = 500;
+const unsigned long VOL_REPEAT_INTERVAL = 200;
 
 const unsigned char speakerIcon [] PROGMEM = {
   0b00011000, 0b00111000, 0b11111100, 0b11111100,
@@ -46,6 +65,22 @@ const unsigned char speakerIcon [] PROGMEM = {
 const unsigned char wifiErrorIcon[] PROGMEM = {
   0b00011000, 0b00100100, 0b01000010, 0b01000010,
   0b01000010, 0b00100100, 0b00011000, 0b00001000
+};
+
+const unsigned char batteryIcon[] PROGMEM = {
+  0b01111111, 0b11111110,
+  0b01000000, 0b00000010,
+  0b11000000, 0b00000011,
+  0b11000000, 0b00000011,
+  0b11000000, 0b00000011,
+  0b01000000, 0b00000010,
+  0b01111111, 0b11111110,
+  0b00000000, 0b00000000
+};
+
+const unsigned char wsErrorIcon[] PROGMEM = {
+  0b00111100, 0b01000010, 0b10000001, 0b10011001,
+  0b10011001, 0b10000001, 0b01000010, 0b00111100
 };
 
 enum WifiState { WIFI_CONNECTING, WIFI_ERROR, WIFI_OK };
@@ -270,6 +305,22 @@ void drawScrollLine(int line, int scale) {
   }
 }
 
+int readBatteryPercent() {
+  // Read ADC value from GPIO13 (ADC2_CH4)
+  // Note: ADC2 may have issues when WiFi is active, but should work for most cases
+  int adcValue = analogRead(BATTERY_ADC_PIN);
+  
+  // Convert ADC value to voltage (assuming 12-bit ADC: 0-4095 for 0-3.3V)
+  // With 100k+100k voltage divider, actual battery voltage is 2x the measured voltage
+  float measuredVoltage = (adcValue / 4095.0) * 3.3;
+  float batteryVoltage = measuredVoltage * 2.0;
+  int batteryMv = (int)(batteryVoltage * 1000);
+  
+  // Map battery voltage to percentage (3.0V = 0%, 4.2V = 100%)
+  int percent = map(batteryMv, BATTERY_MIN_MV, BATTERY_MAX_MV, 0, 100);
+  return constrain(percent, 0, 100);
+}
+
 void updateDisplay() {
   display.clearDisplay();
 
@@ -320,6 +371,38 @@ void updateDisplay() {
     
     display.display();
     return;
+  }
+
+  // Check WebSocket connection (WiFi is OK but WebSocket failed or timed out)
+  if (wifiState == WIFI_OK) {
+    bool wsError = false;
+    
+    // Check if WebSocket never connected (timeout on initial connection)
+    if (!wsConnected && wsConnectStart > 0 && (millis() - wsConnectStart) > WS_CONNECT_TIMEOUT) {
+      wsError = true;
+    }
+    
+    // Check if no message received for 10 seconds (during operation)
+    if (wsConnected && lastWebSocketMessage > 0 && (millis() - lastWebSocketMessage) > WS_MESSAGE_TIMEOUT) {
+      wsError = true;
+    }
+    
+    if (wsError) {
+      bool blink = (millis() % 1000 < 500);
+      
+      int iconX = (SCREEN_WIDTH - 8) / 2;
+      int iconY = 10;
+      if (blink) display.drawBitmap(iconX, iconY, wsErrorIcon, 8, 8, SSD1306_WHITE);
+      
+      String errorText = "Błąd połączenia z yoRadio";
+      int errorWidth = getPixelWidth5x7(errorText, 1);
+      int errorX = (SCREEN_WIDTH - errorWidth) / 2;
+      int errorY = 30;
+      drawString5x7(errorX, errorY, errorText, 1, SSD1306_WHITE);
+      
+      display.display();
+      return;
+    }
   }
 
   // MAIN SCREEN (WiFi OK)
@@ -381,13 +464,23 @@ void updateDisplay() {
       display.drawFastHLine(x, yLine + (8 - barHeights[i]), barWidth, SSD1306_WHITE);
   }
 
+  // Read and update battery level
+  batteryPercent = readBatteryPercent();
+  
+  // Draw battery icon (16x8 pixels)
   int batX = 23;
-  int batWidth = 20;
-  int batHeight = 8;
-  display.drawRect(batX, yLine, batWidth, batHeight, SSD1306_WHITE);
-  display.fillRect(batX + batWidth, yLine + 2, 2, batHeight - 4, SSD1306_WHITE);
-  int fillWidth = (batteryPercent * (batWidth - 2)) / 100;
-  if (fillWidth > 0) display.fillRect(batX + 1, yLine + 1, fillWidth, batHeight - 2, SSD1306_WHITE);
+  int batIconWidth = 16;
+  int batIconHeight = 8;
+  
+  // Draw the battery outline
+  display.drawBitmap(batX, yLine, batteryIcon, batIconWidth, batIconHeight, SSD1306_WHITE);
+  
+  // Fill the battery icon based on percentage
+  // Inner area is 12 pixels wide (from x+2 to x+13), 6 pixels high (from y+1 to y+6)
+  int fillWidth = (batteryPercent * 12) / 100;
+  if (fillWidth > 0) {
+    display.fillRect(batX + 2, yLine + 1, fillWidth, 6, SSD1306_WHITE);
+  }
 
   int volX = 52;
   display.drawBitmap(volX, yLine, speakerIcon, 8, 8, SSD1306_WHITE);
@@ -406,6 +499,8 @@ void updateDisplay() {
 void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
   if (type == WStype_CONNECTED) {
     Serial.println("WebSocket connected!");
+    wsConnected = true;
+    lastWebSocketMessage = millis();
     webSocket.sendTXT("getindex=1");
     return;
   }
@@ -413,6 +508,9 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
   if (type == WStype_TEXT) {
     Serial.print("WebSocket message: ");
     Serial.println((char*)payload);
+    
+    // Update timestamp for message timeout tracking
+    lastWebSocketMessage = millis();
     
     StaticJsonDocument<256> doc;
     DeserializationError error = deserializeJson(doc, payload, length);
@@ -450,6 +548,7 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
   
   if (type == WStype_DISCONNECTED) {
     Serial.println("WebSocket disconnected!");
+    wsConnected = false;
   }
 }
 
@@ -466,11 +565,18 @@ void setup() {
   delay(100);
   Serial.println("\n\nStarting YoRadio OLED Display.. .");
 
+  // Configure deep sleep wakeup on BTN_CENTER (GPIO5, active LOW)
+  esp_sleep_enable_ext0_wakeup(GPIO_NUM_5, 0);
+
   pinMode(BTN_UP, INPUT_PULLUP);
   pinMode(BTN_RIGHT, INPUT_PULLUP);
   pinMode(BTN_CENTER, INPUT_PULLUP);
   pinMode(BTN_LEFT, INPUT_PULLUP);
   pinMode(BTN_DOWN, INPUT_PULLUP);
+  
+  // Initialize battery ADC pin
+  pinMode(BATTERY_ADC_PIN, INPUT);
+  analogReadResolution(12); // Set ADC resolution to 12 bits (0-4095)
 
   if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
     Serial.println(F("SSD1306 failed"));
@@ -485,6 +591,9 @@ void setup() {
   WiFi.begin(WIFI_SSID, WIFI_PASS);
   wifiTimer = millis();
   wifiState = WIFI_CONNECTING;
+  
+  // Initialize activity timer
+  lastActivityTime = millis();
 }
 
 void loop() {
@@ -501,6 +610,10 @@ void loop() {
       Serial.println(":80/ws");
       webSocket.begin(IP_YORADIO, 80, "/ws");
       webSocket.onEvent(webSocketEvent);
+      
+      // Track when WebSocket connection attempt started
+      wsConnectStart = millis();
+      wsConnected = false;
     }
     if (millis() - wifiTimer > wifiTimeout) {
       Serial.println("WiFi connection timeout!");
@@ -511,6 +624,7 @@ void loop() {
       Serial.println("WiFi disconnected!");
       wifiState = WIFI_CONNECTING;
       wifiTimer = millis();
+      wsConnected = false;
     }
   } else if (wifiState == WIFI_ERROR) {
     if (WiFi.status() == WL_CONNECTED) {
@@ -521,6 +635,14 @@ void loop() {
 
   updateDisplay();
 
+  // Check for deep sleep timeout (15 seconds of inactivity)
+  if ((millis() - lastActivityTime) > DEEP_SLEEP_TIMEOUT) {
+    Serial.println("Entering deep sleep due to inactivity...");
+    display.clearDisplay();
+    display.display();
+    esp_deep_sleep_start();
+  }
+
   if (millis() - lastButtonCheck > 120) {
     lastButtonCheck = millis();
 
@@ -530,8 +652,50 @@ void loop() {
     bool curLeft = digitalRead(BTN_LEFT);
     bool curDown = digitalRead(BTN_DOWN);
 
-    if (curUp == LOW) sendCommand("volp=1");
-    if (curDown == LOW) sendCommand("volm=1");
+    // Reset activity timer on any button press
+    if (curUp == LOW || curDown == LOW || curCenter == LOW || curLeft == LOW || curRight == LOW) {
+      lastActivityTime = millis();
+    }
+
+    // VOL+ with long press support
+    if (curUp == LOW) {
+      if (lastUpState == HIGH) {
+        // Initial press - send first command and start tracking
+        sendCommand("volp=1");
+        volUpPressStart = millis();
+      } else {
+        // Button is held - check for repeat
+        unsigned long pressDuration = millis() - volUpPressStart;
+        if (pressDuration > VOL_LONG_PRESS_THRESHOLD) {
+          // Long press detected - send repeat commands
+          static unsigned long lastVolUpRepeat = 0;
+          if (millis() - lastVolUpRepeat >= VOL_REPEAT_INTERVAL) {
+            sendCommand("volp=1");
+            lastVolUpRepeat = millis();
+          }
+        }
+      }
+    }
+
+    // VOL- with long press support
+    if (curDown == LOW) {
+      if (lastDownState == HIGH) {
+        // Initial press - send first command and start tracking
+        sendCommand("volm=1");
+        volDownPressStart = millis();
+      } else {
+        // Button is held - check for repeat
+        unsigned long pressDuration = millis() - volDownPressStart;
+        if (pressDuration > VOL_LONG_PRESS_THRESHOLD) {
+          // Long press detected - send repeat commands
+          static unsigned long lastVolDownRepeat = 0;
+          if (millis() - lastVolDownRepeat >= VOL_REPEAT_INTERVAL) {
+            sendCommand("volm=1");
+            lastVolDownRepeat = millis();
+          }
+        }
+      }
+    }
 
     if (curCenter == LOW && lastCenterState == HIGH) sendCommand("toggle=1");
     if (curLeft == LOW && lastLeftState == HIGH) sendCommand("prev=1");
