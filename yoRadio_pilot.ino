@@ -28,7 +28,8 @@
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
 #define OLED_RESET -1
-#define OLED_BRIGHTNESS 10  // 0-15 (wartość * 16 daje zakres 0-240 dla kontrastu SSD1306)
+#define OLED_BRIGHTNESS_MULTIPLIER 16  // Mnożnik dla jasności OLED (0-15 → 0-240)
+#define OLED_BRIGHTNESS 10             // 0-15 (wartość * MULTIPLIER daje zakres 0-240)
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 WebSocketsClient webSocket;
@@ -541,7 +542,7 @@ void setup() {
   // UWAGA: Adafruit_SSD1306 nie ma metody setContrast() ani contrast()
   // Prawidłowy sposób to użycie ssd1306_command() z SSD1306_SETCONTRAST (0x81)
   display.ssd1306_command(SSD1306_SETCONTRAST);
-  display.ssd1306_command(OLED_BRIGHTNESS * 16);  // Mnożnik 16: 0-15 → 0-240
+  display.ssd1306_command(OLED_BRIGHTNESS * OLED_BRIGHTNESS_MULTIPLIER);
 
   display.clearDisplay();
   display.display();
