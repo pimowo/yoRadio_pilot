@@ -75,8 +75,8 @@ const unsigned char wifiErrorIcon[] PROGMEM = {
 };
 
 const unsigned char batteryIcon[] PROGMEM = {
-  0b01111110, 0b11111111, 0b10000001, 0b10000001,
-  0b10000001, 0b10000001, 0b11111111, 0b01111110
+  0b00111100, 0b01111110, 0b11111111, 0b11000011,
+  0b11000011, 0b11111111, 0b11111111, 0b11111111
 };
 
 enum WifiState { WIFI_CONNECTING, WIFI_ERROR, WIFI_OK };
@@ -311,7 +311,7 @@ void readBatteryLevel() {
   
   // Map 3.0V-4.2V to 0-100%
   int voltageInCentivolt = (int)(voltage * 100);
-  batteryPercent = constrain(map(voltageInCentivolt, MIN_BATTERY_VOLTAGE_MV, MAX_BATTERY_VOLTAGE_MV, 0, 100), 0, 100);
+  batteryPercent = map(voltageInCentivolt, MIN_BATTERY_VOLTAGE_MV, MAX_BATTERY_VOLTAGE_MV, 0, 100);
 }
 
 void updateDisplay() {
@@ -367,7 +367,7 @@ void updateDisplay() {
   }
 
   // Check WebSocket timeout (when WiFi is OK but no messages)
-  if (wifiState == WIFI_OK && wsConnected && (millis() - lastWsMessage > wsTimeout)) {
+  if (wifiState == WIFI_OK && wsConnected && lastWsMessage > 0 && (millis() - lastWsMessage > wsTimeout)) {
     bool blink = (millis() % BLINK_PERIOD_MS < BLINK_ON_DURATION_MS);
     
     int iconX = (SCREEN_WIDTH - 8) / 2;
