@@ -337,8 +337,8 @@ void updateDisplay() {
   // MAIN SCREEN (WiFi OK)
   // Check if WebSocket is connected
   if (!wsConnected) {
-    // Display "Błąd połączenia z yoRadio"
-    char errorText[] = "Blad polaczenia";
+    // Display "Błąd połączenia z yoRadio" with proper Polish characters
+    char errorText[] = "Błąd połączenia";
     int errorWidth = getPixelWidth5x7(errorText, 1);
     int errorX = (SCREEN_WIDTH - errorWidth) / 2;
     int errorY = 20;
