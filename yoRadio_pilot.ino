@@ -25,6 +25,8 @@
 // wyświetlacz
 #define OLED_BRIGHTNESS 1              // jasność OLED 0-15 (DEFAULT=1, MIN=0, MAX=15)
 #define DISPLAY_REFRESH_RATE_MS 100    // odświeżanie ekranu (100ms = 10 FPS)
+// bateria
+#define BATTERY_LOW_BLINK_MS 500       // interwał mrugania słabej baterii
 // watchdog
 #define WDT_TIMEOUT 30                 // timeout watchdog w sekundach
 //==================================================================================================
@@ -436,8 +438,7 @@ void updateDisplay() {
   // Animacja mrugania dla słabej baterii (< 20%)
   bool showBattery = true;
   if (batteryPercent < 20) {
-    // Migaj co 500ms
-    showBattery = ((millis() / 500) % 2) == 0;
+    showBattery = ((millis() / BATTERY_LOW_BLINK_MS) % 2) == 0;
   }
   
   if (showBattery) {
@@ -544,7 +545,8 @@ void enterDeepSleep() {
   // ESP_EXT1_WAKEUP_ALL_LOW - wybudź gdy wszystkie piny w masce są LOW
   esp_sleep_enable_ext1_wakeup(1ULL << GPIO_NUM_5, ESP_EXT1_WAKEUP_ALL_LOW);
   
-  // Wyłącz RTC memory preserve - zapobiega resetom
+  // Wyłącz RTC memory preserve - zapobiega konfliktom GPIO i resetom podczas deep sleep
+  // Przy wybudzeniu ESP32 wykona pełny reset i zainicjalizuje wszystkie zmienne od nowa
   esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_OFF);
   esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_SLOW_MEM, ESP_PD_OPTION_OFF);
   esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_FAST_MEM, ESP_PD_OPTION_OFF);
@@ -562,7 +564,8 @@ void setup() {
   Serial.println(FIRMWARE_VERSION);
 
   // Inicjalizacja watchdog timer
-  esp_task_wdt_init(WDT_TIMEOUT, true);  // timeout w sekundach
+  // true = panic on timeout (reboot ESP32 jeśli watchdog nie zostanie zresetowany)
+  esp_task_wdt_init(WDT_TIMEOUT, true);
   esp_task_wdt_add(NULL);  // Dodaj current task
   Serial.println("Watchdog timer initialized");
 
@@ -577,10 +580,11 @@ void setup() {
     for(;;);
   }
 
-  // Ustaw jasność OLED
-  display.setContrast(OLED_BRIGHTNESS * 16);  // 0-255 (0-15 * 16)
+  // Ustaw jasność OLED (0-15 mapuje na 0-255)
+  uint8_t brightness = constrain(OLED_BRIGHTNESS, 0, 15);
+  display.setContrast(brightness * 16);
   Serial.print("OLED brightness set to: ");
-  Serial.println(OLED_BRIGHTNESS);
+  Serial.println(brightness);
 
   display.clearDisplay();
   display.display();
