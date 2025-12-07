@@ -183,21 +183,23 @@ bool containsNonAscii(const String &s) {
 
 void prepareScroll(int line, const String& txt, int scale) {
   int singleWidth = getPixelWidth5x7(txt, scale);
-  int suffixWidth = getPixelWidth5x7(String(scrollSuffix), scale);
   int availWidth = scrollConfs[line].width;
   
-  int totalWidthWithSuffix = singleWidth + suffixWidth;
-  bool needsScroll = totalWidthWithSuffix > availWidth;
+  // Sprawdzaj TYLKO szerokość samego tekstu
+  bool needsScroll = singleWidth > availWidth;
   
   if (needsScroll) {
-    scrollStates[line].text = txt + String(scrollSuffix) + txt;
+    // Tekst jest za długi - TERAZ dodaj sufiks do obliczenia
+    int suffixWidth = getPixelWidth5x7(String(scrollSuffix), scale);
+    scrollStates[line]. text = txt + String(scrollSuffix) + txt;
     scrollStates[line].singleTextWidth = singleWidth;
     scrollStates[line].suffixWidth = suffixWidth;
     scrollStates[line].scrolling = true;
   } else {
+    // Tekst się mieści - BEZ suffiksa, bez obliczania jego szerokości
     scrollStates[line].text = txt;
     scrollStates[line].singleTextWidth = singleWidth;
-    scrollStates[line]. suffixWidth = 0;
+    scrollStates[line]. suffixWidth = 0;  // Brak suffiksa
     scrollStates[line].scrolling = false;
   }
 }
