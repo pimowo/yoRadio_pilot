@@ -7,6 +7,7 @@
 #define WIFI_SSID "pimowo"
 #define WIFI_PASS "ckH59LRZQzCDQFiUgj"
 #define IP_YORADIO "192.168.1.101"
+#define DEEP_SLEEP_TIMEOUT_SEC 15  // Sekundy bezczynności przed deep sleep
 
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
@@ -32,6 +33,7 @@ String wykonawca = "";
 String utwor = "";
 
 unsigned long lastButtonCheck = 0;
+unsigned long lastActivityTime = 0;
 bool lastCenterState = HIGH;
 bool lastLeftState = HIGH;
 bool lastRightState = HIGH;
@@ -461,6 +463,26 @@ void sendCommand(const char* cmd) {
   }
 }
 
+void enterDeepSleep() {
+  Serial.println("Powering down WiFi...");
+  webSocket.disconnect();
+  WiFi.disconnect(true);  // true = wyłącz WiFi radio
+  WiFi.mode(WIFI_OFF);
+  
+  Serial.println("Entering deep sleep...");
+  
+  // GPIO5 (BTN_CENTER) = pin do wybudzenia
+  // 0 = LOW trigger (przycisk zwiera GND, więc LOW = naciśnięty)
+  esp_sleep_enable_ext0_wakeup(GPIO_NUM_5, 0);
+  
+  Serial.flush();
+  
+  // Przejdź w deep sleep
+  esp_deep_sleep_start();
+  // Kod poniżej NIE ZOSTANIE wykonany!
+  // ESP32 się wybudzi i zrobi pełny boot
+}
+
 void setup() {
   Serial.begin(115200);
   delay(100);
@@ -485,6 +507,9 @@ void setup() {
   WiFi.begin(WIFI_SSID, WIFI_PASS);
   wifiTimer = millis();
   wifiState = WIFI_CONNECTING;
+  
+  // Inicjalizacja timera aktywności
+  lastActivityTime = millis();
 }
 
 void loop() {
@@ -530,17 +555,45 @@ void loop() {
     bool curLeft = digitalRead(BTN_LEFT);
     bool curDown = digitalRead(BTN_DOWN);
 
-    if (curUp == LOW) sendCommand("volp=1");
-    if (curDown == LOW) sendCommand("volm=1");
+    bool anyButtonPressed = false;
 
-    if (curCenter == LOW && lastCenterState == HIGH) sendCommand("toggle=1");
-    if (curLeft == LOW && lastLeftState == HIGH) sendCommand("prev=1");
-    if (curRight == LOW && lastRightState == HIGH) sendCommand("next=1");
+    if (curUp == LOW) {
+      sendCommand("volp=1");
+      anyButtonPressed = true;
+    }
+    if (curDown == LOW) {
+      sendCommand("volm=1");
+      anyButtonPressed = true;
+    }
+
+    if (curCenter == LOW && lastCenterState == HIGH) {
+      sendCommand("toggle=1");
+      anyButtonPressed = true;
+    }
+    if (curLeft == LOW && lastLeftState == HIGH) {
+      sendCommand("prev=1");
+      anyButtonPressed = true;
+    }
+    if (curRight == LOW && lastRightState == HIGH) {
+      sendCommand("next=1");
+      anyButtonPressed = true;
+    }
+
+    // Resetuj timer aktywności przy każdym naciśnięciu przycisku
+    if (anyButtonPressed) {
+      lastActivityTime = millis();
+    }
 
     lastCenterState = curCenter;
     lastLeftState = curLeft;
     lastRightState = curRight;
     lastUpState = curUp;
     lastDownState = curDown;
+  }
+
+  // Sprawdź bezczynność i przejdź w deep sleep
+  if (millis() - lastActivityTime > (DEEP_SLEEP_TIMEOUT_SEC * 1000)) {
+    enterDeepSleep();
+    // Kod poniżej nie zostanie wykonany
   }
 }
