@@ -2,9 +2,13 @@
 #include <WebSocketsClient.h>
 #include <Adafruit_SSD1306.h>
 #include <ArduinoJson.h>
+#include <ArduinoOTA.h>
+#include <esp_task_wdt.h>
 #include "font5x7.h"
 
 //==================================================================================================
+// Wersja firmware
+#define FIRMWARE_VERSION "1.0.0"
 // sieć
 #define WIFI_SSID "pimowo"             // sieć 
 #define WIFI_PASS "ckH59LRZQzCDQFiUgj" // hasło sieci
@@ -18,6 +22,11 @@
 #define BTN_CENTER 5 // pin OK
 #define BTN_LEFT   6 // pin LEWO 
 #define BTN_DOWN   3 // pin DÓŁ
+// wyświetlacz
+#define OLED_BRIGHTNESS 1              // jasność OLED 0-15 (DEFAULT=1, MIN=0, MAX=15)
+#define DISPLAY_REFRESH_RATE_MS 100    // odświeżanie ekranu (100ms = 10 FPS)
+// watchdog
+#define WDT_TIMEOUT 30                 // timeout watchdog w sekundach
 //==================================================================================================
 
 #define SCREEN_WIDTH 128
@@ -43,6 +52,7 @@ const unsigned long WS_TIMEOUT_MS = 10000;  // 10 sekund timeout
 
 unsigned long lastButtonCheck = 0;
 unsigned long lastActivityTime = 0;
+unsigned long lastDisplayUpdate = 0;
 bool lastCenterState = HIGH;
 bool lastLeftState = HIGH;
 bool lastRightState = HIGH;
@@ -282,6 +292,12 @@ void drawScrollLine(int line, int scale) {
 }
 
 void updateDisplay() {
+  // Throttle display updates to DISPLAY_REFRESH_RATE_MS
+  if (millis() - lastDisplayUpdate < DISPLAY_REFRESH_RATE_MS) {
+    return;
+  }
+  lastDisplayUpdate = millis();
+  
   display.clearDisplay();
 
   if (wifiState == WIFI_CONNECTING) {
@@ -311,6 +327,13 @@ void updateDisplay() {
     int ssidY = 35;
     
     drawString5x7(ssidX, ssidY, ssidText, 1, SSD1306_WHITE);
+    
+    // Wyświetl wersję firmware na dole
+    String versionText = "v" + String(FIRMWARE_VERSION);
+    int versionWidth = getPixelWidth5x7(versionText, 1);
+    int versionX = (SCREEN_WIDTH - versionWidth) / 2;
+    int versionY = 52;
+    drawString5x7(versionX, versionY, versionText, 1, SSD1306_WHITE);
     
     display.display();
     return;
@@ -409,10 +432,20 @@ void updateDisplay() {
   int batX = 23;
   int batWidth = 20;
   int batHeight = 8;
-  display.drawRect(batX, yLine, batWidth, batHeight, SSD1306_WHITE);
-  display.fillRect(batX + batWidth, yLine + 2, 2, batHeight - 4, SSD1306_WHITE);
-  int fillWidth = (batteryPercent * (batWidth - 2)) / 100;
-  if (fillWidth > 0) display.fillRect(batX + 1, yLine + 1, fillWidth, batHeight - 2, SSD1306_WHITE);
+  
+  // Animacja mrugania dla słabej baterii (< 20%)
+  bool showBattery = true;
+  if (batteryPercent < 20) {
+    // Migaj co 500ms
+    showBattery = ((millis() / 500) % 2) == 0;
+  }
+  
+  if (showBattery) {
+    display.drawRect(batX, yLine, batWidth, batHeight, SSD1306_WHITE);
+    display.fillRect(batX + batWidth, yLine + 2, 2, batHeight - 4, SSD1306_WHITE);
+    int fillWidth = (batteryPercent * (batWidth - 2)) / 100;
+    if (fillWidth > 0) display.fillRect(batX + 1, yLine + 1, fillWidth, batHeight - 2, SSD1306_WHITE);
+  }
 
   int volX = 52;
   display.drawBitmap(volX, yLine, speakerIcon, 8, 8, SSD1306_WHITE);
@@ -491,23 +524,30 @@ void sendCommand(const char* cmd) {
 }
 
 void enterDeepSleep() {
-  Serial.println("Clearing display and powering down...");
+  Serial.println("Preparing deep sleep...");
   display.clearDisplay();
   display.display();
   display.ssd1306_command(0xAE);  // Wyłącz OLED
   
-  Serial.println("Powering down WiFi...");
+  delay(100);  // Czekaj żeby wszystko się stabilizowało
+  
   webSocket.disconnect();
-  WiFi.disconnect(true);  // wyłącz WiFi radio
+  WiFi.disconnect(true);
   WiFi.mode(WIFI_OFF);
   
+  delay(100);
+  
   Serial.println("Entering deep sleep...");
-  
-  // GPIO5 (BTN_CENTER) = pin do wybudzenia
-  // 0 = LOW trigger (przycisk zwiera GND, więc LOW = naciśnięty)
-  esp_sleep_enable_ext0_wakeup(GPIO_NUM_5, 0);
-  
   Serial.flush();
+  
+  // GPIO5 (BTN_CENTER) z bitmask (ext1_wakeup) zamiast ext0_wakeup
+  // ESP_EXT1_WAKEUP_ALL_LOW - wybudź gdy wszystkie piny w masce są LOW
+  esp_sleep_enable_ext1_wakeup(1ULL << GPIO_NUM_5, ESP_EXT1_WAKEUP_ALL_LOW);
+  
+  // Wyłącz RTC memory preserve - zapobiega resetom
+  esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_OFF);
+  esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_SLOW_MEM, ESP_PD_OPTION_OFF);
+  esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_FAST_MEM, ESP_PD_OPTION_OFF);
   
   // Przejdź w deep sleep
   esp_deep_sleep_start();
@@ -518,7 +558,13 @@ void enterDeepSleep() {
 void setup() {
   Serial.begin(115200);
   delay(100);
-  Serial.println("\n\nStarting YoRadio OLED Display.. .");
+  Serial.print("\n\nStarting YoRadio OLED Display v");
+  Serial.println(FIRMWARE_VERSION);
+
+  // Inicjalizacja watchdog timer
+  esp_task_wdt_init(WDT_TIMEOUT, true);  // timeout w sekundach
+  esp_task_wdt_add(NULL);  // Dodaj current task
+  Serial.println("Watchdog timer initialized");
 
   pinMode(BTN_UP, INPUT_PULLUP);
   pinMode(BTN_RIGHT, INPUT_PULLUP);
@@ -531,6 +577,11 @@ void setup() {
     for(;;);
   }
 
+  // Ustaw jasność OLED
+  display.setContrast(OLED_BRIGHTNESS * 16);  // 0-255 (0-15 * 16)
+  Serial.print("OLED brightness set to: ");
+  Serial.println(OLED_BRIGHTNESS);
+
   display.clearDisplay();
   display.display();
 
@@ -540,12 +591,53 @@ void setup() {
   wifiTimer = millis();
   wifiState = WIFI_CONNECTING;
   
+  // Inicjalizacja ArduinoOTA
+  ArduinoOTA.setHostname("yoRadio-pilot");
+  ArduinoOTA.onStart([]() {
+    String type;
+    if (ArduinoOTA.getCommand() == U_FLASH) {
+      type = "sketch";
+    } else {
+      type = "filesystem";
+    }
+    Serial.println("Start updating " + type);
+  });
+  ArduinoOTA.onEnd([]() {
+    Serial.println("\nEnd");
+  });
+  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+    Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
+  });
+  ArduinoOTA.onError([](ota_error_t error) {
+    Serial.printf("Error[%u]: ", error);
+    if (error == OTA_AUTH_ERROR) {
+      Serial.println("Auth Failed");
+    } else if (error == OTA_BEGIN_ERROR) {
+      Serial.println("Begin Failed");
+    } else if (error == OTA_CONNECT_ERROR) {
+      Serial.println("Connect Failed");
+    } else if (error == OTA_RECEIVE_ERROR) {
+      Serial.println("Receive Failed");
+    } else if (error == OTA_END_ERROR) {
+      Serial.println("End Failed");
+    }
+  });
+  ArduinoOTA.begin();
+  Serial.println("OTA ready");
+  
   // Inicjalizacja timerów
   lastActivityTime = millis();
   lastWebSocketMessage = millis();
+  lastDisplayUpdate = millis();
 }
 
 void loop() {
+  // Reset watchdog co iterację
+  esp_task_wdt_reset();
+  
+  // Obsługa OTA updates
+  ArduinoOTA.handle();
+  
   webSocket.loop();
 
   if (wifiState == WIFI_CONNECTING) {
