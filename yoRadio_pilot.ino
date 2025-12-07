@@ -22,16 +22,19 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 WebSocketsClient webSocket;
 
 int batteryPercent = 100;
-String meta = "";
+char meta[128] = "";
 int volume = 0;
 int bitrate = 0;
 int rssi = 0;
-String playerwrap = "";
-String stacja = "";
-String wykonawca = "";
-String utwor = "";
+char playerwrap[64] = "";
+char stacja[128] = "";
+char wykonawca[128] = "";
+char utwor[128] = "";
+bool wsConnected = false;
 
 unsigned long lastButtonCheck = 0;
+unsigned long lastDisplayUpdate = 0;
+const unsigned long displayInterval = 50; // 20 FPS max
 bool lastCenterState = HIGH;
 bool lastLeftState = HIGH;
 bool lastRightState = HIGH;
@@ -78,16 +81,16 @@ struct ScrollState {
   unsigned long t_start;
   bool scrolling;
   bool isMoving;
-  String text;
+  char text[384]; // Static buffer for scroll text
   int singleTextWidth;
   int suffixWidth;
 };
 
 ScrollState scrollStates[3] = {0};
 
-String prev_stacja = "";
-String prev_wykonawca = "";
-String prev_utwor = "";
+char prev_stacja[128] = "";
+char prev_wykonawca[128] = "";
+char prev_utwor[128] = "";
 
 const char* scrollSuffix = " * ";
 
@@ -135,17 +138,17 @@ void drawChar5x7(int16_t x, int16_t y, uint8_t ch, uint16_t color = SSD1306_WHIT
   }
 }
 
-void drawString5x7(int16_t x, int16_t y, const String &s, uint8_t scale = 1, uint16_t color = SSD1306_WHITE) {
+void drawString5x7(int16_t x, int16_t y, const char* str, uint8_t scale = 1, uint16_t color = SSD1306_WHITE) {
   int16_t cx = x;
-  const char* str = s.c_str();
-  for (size_t i = 0; i < s.length();) {
+  size_t len = strlen(str);
+  for (size_t i = 0; i < len;) {
     uint8_t c = (uint8_t)str[i];
     if (c < 128) {
       if (c >= 32) drawChar5x7(cx, y, c, color, scale);
       cx += (5 + 1) * scale;
       i++;
     } else {
-      if ((c & 0xE0) == 0xC0 && i + 1 < s.length()) {
+      if ((c & 0xE0) == 0xC0 && i + 1 < len) {
         uint8_t c2 = (uint8_t)str[i+1];
         uint16_t uni = ((c & 0x1F) << 6) | (c2 & 0x3F);
         uint8_t mapped = mapUtf8Polish(uni);
@@ -160,28 +163,28 @@ void drawString5x7(int16_t x, int16_t y, const String &s, uint8_t scale = 1, uin
   }
 }
 
-int getPixelWidth5x7(const String &s, uint8_t scale = 1) {
+int getPixelWidth5x7(const char* str, uint8_t scale = 1) {
   int glyphs = 0;
-  const char *str = s.c_str();
-  for (size_t i = 0; i < s. length();) {
+  size_t len = strlen(str);
+  for (size_t i = 0; i < len;) {
     uint8_t c = (uint8_t)str[i];
     if (c < 128) { glyphs++; i++; }
-    else if ((c & 0xE0) == 0xC0 && i + 1 < s.length()) { glyphs++; i += 2; }
+    else if ((c & 0xE0) == 0xC0 && i + 1 < len) { glyphs++; i += 2; }
     else i++;
   }
   return glyphs * (5 + 1) * scale;
 }
 
-bool containsNonAscii(const String &s) {
-  for (size_t i = 0; i < s.length(); i++) {
-    if ((uint8_t)s[i] & 0x80) return true;
+bool containsNonAscii(const char* str) {
+  for (size_t i = 0; i < strlen(str); i++) {
+    if ((uint8_t)str[i] & 0x80) return true;
   }
   return false;
 }
 
 // ===== SCROLL FUNCTIONS =====
 
-void prepareScroll(int line, const String& txt, int scale) {
+void prepareScroll(int line, const char* txt, int scale) {
   int singleWidth = getPixelWidth5x7(txt, scale);
   int availWidth = scrollConfs[line].width;
   
@@ -190,16 +193,19 @@ void prepareScroll(int line, const String& txt, int scale) {
   
   if (needsScroll) {
     // Tekst jest za długi - TERAZ dodaj sufiks do obliczenia
-    int suffixWidth = getPixelWidth5x7(String(scrollSuffix), scale);
-    scrollStates[line]. text = txt + String(scrollSuffix) + txt;
+    int suffixWidth = getPixelWidth5x7(scrollSuffix, scale);
+    // Build: txt + suffix + txt
+    snprintf(scrollStates[line].text, sizeof(scrollStates[line].text), 
+             "%s%s%s", txt, scrollSuffix, txt);
     scrollStates[line].singleTextWidth = singleWidth;
     scrollStates[line].suffixWidth = suffixWidth;
     scrollStates[line].scrolling = true;
   } else {
-    // Tekst się mieści - BEZ suffiksa, bez obliczania jego szerokości
-    scrollStates[line].text = txt;
+    // Tekst się mieści - BEZ suffiksa
+    strncpy(scrollStates[line].text, txt, sizeof(scrollStates[line].text) - 1);
+    scrollStates[line].text[sizeof(scrollStates[line].text) - 1] = '\0';
     scrollStates[line].singleTextWidth = singleWidth;
-    scrollStates[line]. suffixWidth = 0;  // Brak suffiksa
+    scrollStates[line].suffixWidth = 0;  // Brak suffiksa
     scrollStates[line].scrolling = false;
   }
 }
@@ -228,7 +234,7 @@ void updateScroll(int line) {
   
   unsigned long elapsed = now - state.t_start;
   
-  if (state.pos == 0 && ! state.isMoving) {
+  if (state.pos == 0 && !state.isMoving) {
     if (elapsed >= conf.scrolltime) {
       state.isMoving = true;
       state.t_last = now;
@@ -241,7 +247,7 @@ void updateScroll(int line) {
     
     int resetPos = -(state.singleTextWidth + state.suffixWidth);
     if (state.pos <= resetPos) {
-      state. pos = 0;
+      state.pos = 0;
       state.isMoving = false;
       state.t_start = now;
       
@@ -249,7 +255,7 @@ void updateScroll(int line) {
       scrollStates[activeScrollLine].t_start = now;
       scrollStates[activeScrollLine].t_last = now;
       scrollStates[activeScrollLine].pos = 0;
-      scrollStates[activeScrollLine]. isMoving = false;
+      scrollStates[activeScrollLine].isMoving = false;
     }
     
     state.t_last = now;
@@ -271,6 +277,13 @@ void drawScrollLine(int line, int scale) {
 }
 
 void updateDisplay() {
+  // Throttle display updates to max 20 FPS (50ms)
+  unsigned long now = millis();
+  if (now - lastDisplayUpdate < displayInterval) {
+    return;
+  }
+  lastDisplayUpdate = now;
+  
   display.clearDisplay();
 
   if (wifiState == WIFI_CONNECTING) {
@@ -294,12 +307,11 @@ void updateDisplay() {
       display.fillRect(x, yLine + (8 - barHeights[i]), barWidth, barHeights[i], SSD1306_WHITE);
     }
     
-    String ssidText = String(WIFI_SSID);
-    int ssidWidth = getPixelWidth5x7(ssidText, 1);
+    int ssidWidth = getPixelWidth5x7(WIFI_SSID, 1);
     int ssidX = (SCREEN_WIDTH - ssidWidth) / 2;
     int ssidY = 35;
     
-    drawString5x7(ssidX, ssidY, ssidText, 1, SSD1306_WHITE);
+    drawString5x7(ssidX, ssidY, WIFI_SSID, 1, SSD1306_WHITE);
     
     display.display();
     return;
@@ -312,7 +324,7 @@ void updateDisplay() {
     int iconY = 10;
     if (blink) display.drawBitmap(iconX, iconY, wifiErrorIcon, 8, 8, SSD1306_WHITE);
     
-    String errorText = "Brak WiFi";
+    char errorText[] = "Brak WiFi";
     int errorWidth = getPixelWidth5x7(errorText, 1);
     int errorX = (SCREEN_WIDTH - errorWidth) / 2;
     int errorY = 30;
@@ -323,35 +335,59 @@ void updateDisplay() {
   }
 
   // MAIN SCREEN (WiFi OK)
+  // Check if WebSocket is connected
+  if (!wsConnected) {
+    // Display "Błąd połączenia z yoRadio"
+    char errorText[] = "Blad polaczenia";
+    int errorWidth = getPixelWidth5x7(errorText, 1);
+    int errorX = (SCREEN_WIDTH - errorWidth) / 2;
+    int errorY = 20;
+    drawString5x7(errorX, errorY, errorText, 1, SSD1306_WHITE);
+    
+    char errorText2[] = "z yoRadio";
+    int error2Width = getPixelWidth5x7(errorText2, 1);
+    int error2X = (SCREEN_WIDTH - error2Width) / 2;
+    int error2Y = 35;
+    drawString5x7(error2X, error2Y, errorText2, 1, SSD1306_WHITE);
+    
+    display.display();
+    return;
+  }
+  
   const int16_t lineHeight = 16;
   display.fillRect(0, 0, SCREEN_WIDTH, lineHeight, SSD1306_WHITE);
 
   // === PREPARE SCROLLS - TYLKO PRZY ZMIANIE =====
-  if (stacja != prev_stacja) {
-    prev_stacja = stacja;
+  unsigned long scrollNow = millis();
+  
+  if (strcmp(stacja, prev_stacja) != 0) {
+    strncpy(prev_stacja, stacja, sizeof(prev_stacja) - 1);
+    prev_stacja[sizeof(prev_stacja) - 1] = '\0';
     scrollStates[0].pos = 0;
-    scrollStates[0].t_start = millis();
-    scrollStates[0].t_last = millis();
+    scrollStates[0].t_start = scrollNow;
+    scrollStates[0].t_last = scrollNow;
     scrollStates[0].isMoving = false;
     prepareScroll(0, stacja, scrollConfs[0].fontsize);
   }
 
-  if (wykonawca != prev_wykonawca) {
-    prev_wykonawca = wykonawca;
+  if (strcmp(wykonawca, prev_wykonawca) != 0) {
+    strncpy(prev_wykonawca, wykonawca, sizeof(prev_wykonawca) - 1);
+    prev_wykonawca[sizeof(prev_wykonawca) - 1] = '\0';
     scrollStates[1].pos = 0;
-    scrollStates[1]. t_start = millis();
-    scrollStates[1].t_last = millis();
+    scrollStates[1].t_start = scrollNow;
+    scrollStates[1].t_last = scrollNow;
     scrollStates[1].isMoving = false;
     prepareScroll(1, wykonawca, scrollConfs[1].fontsize);
   }
 
-  if (utwor != prev_utwor) {
-    prev_utwor = utwor;
+  if (strcmp(utwor, prev_utwor) != 0) {
+    strncpy(prev_utwor, utwor, sizeof(prev_utwor) - 1);
+    prev_utwor[sizeof(prev_utwor) - 1] = '\0';
     scrollStates[2].pos = 0;
-    scrollStates[2].t_start = millis();
-    scrollStates[2].t_last = millis();
-    scrollStates[2]. isMoving = false;
-    prepareScroll(2, utwor, scrollConfs[2]. fontsize);
+    scrollStates[2].t_start = scrollNow;
+    scrollStates[2].t_last = scrollNow;
+    scrollStates[2].isMoving = false;
+    prepareScroll(2, utwor, scrollConfs[2].fontsize);
   }
 
   // === UPDATE SCROLLS ===
@@ -361,7 +397,7 @@ void updateDisplay() {
 
   // === DRAW ALL LINES ===
   drawScrollLine(0, scrollConfs[0].fontsize);
-  drawScrollLine(1, scrollConfs[1]. fontsize);
+  drawScrollLine(1, scrollConfs[1].fontsize);
   drawScrollLine(2, scrollConfs[2].fontsize);
 
   // BOTTOM LINE: RSSI, battery, volume, bitrate
@@ -392,12 +428,12 @@ void updateDisplay() {
   int volX = 52;
   display.drawBitmap(volX, yLine, speakerIcon, 8, 8, SSD1306_WHITE);
   display.setCursor(volX + 10, yLine);
-  display. setTextSize(1);
+  display.setTextSize(1);
   display.setTextColor(SSD1306_WHITE);
   display.print(volume);
 
   display.setCursor(90, yLine);
-  display. print(bitrate);
+  display.print(bitrate);
   display.print("kbs");
 
   display.display();
@@ -406,6 +442,7 @@ void updateDisplay() {
 void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
   if (type == WStype_CONNECTED) {
     Serial.println("WebSocket connected!");
+    wsConnected = true;
     webSocket.sendTXT("getindex=1");
     return;
   }
@@ -414,7 +451,7 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
     Serial.print("WebSocket message: ");
     Serial.println((char*)payload);
     
-    StaticJsonDocument<256> doc;
+    StaticJsonDocument<512> doc;
     DeserializationError error = deserializeJson(doc, payload, length);
     if (error) {
       Serial.print("JSON parse error: ");
@@ -422,34 +459,53 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
       return;
     }
     
-    if (doc. containsKey("payload")) {
-      JsonArray arr = doc["payload"]. as<JsonArray>();
+    if (doc.containsKey("payload")) {
+      JsonArray arr = doc["payload"].as<JsonArray>();
       for (JsonObject obj : arr) {
-        String id = obj["id"].as<String>();
-        if (id == "nameset") stacja = obj["value"].as<String>();
-        if (id == "meta") {
-          String metaStr = obj["value"].as<String>();
-          int sep = metaStr.indexOf(" - ");
-          if (sep > 0) {
-            wykonawca = metaStr.substring(0, sep);
-            utwor = metaStr.substring(sep + 3);
+        const char* id = obj["id"];
+        if (strcmp(id, "nameset") == 0) {
+          const char* val = obj["value"];
+          strncpy(stacja, val, sizeof(stacja) - 1);
+          stacja[sizeof(stacja) - 1] = '\0';
+        }
+        if (strcmp(id, "meta") == 0) {
+          const char* metaStr = obj["value"];
+          strncpy(meta, metaStr, sizeof(meta) - 1);
+          meta[sizeof(meta) - 1] = '\0';
+          
+          // Parse meta: "Artist - Title"
+          char* sep = strstr(meta, " - ");
+          if (sep) {
+            size_t artistLen = sep - meta;
+            if (artistLen >= sizeof(wykonawca)) artistLen = sizeof(wykonawca) - 1;
+            strncpy(wykonawca, meta, artistLen);
+            wykonawca[artistLen] = '\0';
+            
+            const char* titleStart = sep + 3;
+            strncpy(utwor, titleStart, sizeof(utwor) - 1);
+            utwor[sizeof(utwor) - 1] = '\0';
           } else {
-            wykonawca = "";
-            utwor = metaStr;
+            wykonawca[0] = '\0';
+            strncpy(utwor, metaStr, sizeof(utwor) - 1);
+            utwor[sizeof(utwor) - 1] = '\0';
           }
         }
-        if (id == "volume") volume = obj["value"].as<int>();
-        if (id == "bitrate") bitrate = obj["value"].as<int>();
-        if (id == "playerwrap") playerwrap = obj["value"].as<String>();
-        if (id == "rssi") rssi = obj["value"].as<int>();
+        if (strcmp(id, "volume") == 0) volume = obj["value"];
+        if (strcmp(id, "bitrate") == 0) bitrate = obj["value"];
+        if (strcmp(id, "playerwrap") == 0) {
+          const char* val = obj["value"];
+          strncpy(playerwrap, val, sizeof(playerwrap) - 1);
+          playerwrap[sizeof(playerwrap) - 1] = '\0';
+        }
+        if (strcmp(id, "rssi") == 0) rssi = obj["value"];
+        if (strcmp(id, "battery") == 0) batteryPercent = obj["value"];
       }
     }
-
-    if (wifiState == WIFI_OK) updateDisplay();
   }
   
   if (type == WStype_DISCONNECTED) {
     Serial.println("WebSocket disconnected!");
+    wsConnected = false;
   }
 }
 
@@ -509,13 +565,18 @@ void loop() {
   } else if (wifiState == WIFI_OK) {
     if (WiFi.status() != WL_CONNECTED) {
       Serial.println("WiFi disconnected!");
+      wsConnected = false;
       wifiState = WIFI_CONNECTING;
       wifiTimer = millis();
     }
   } else if (wifiState == WIFI_ERROR) {
     if (WiFi.status() == WL_CONNECTED) {
-      Serial. println("WiFi reconnected!");
+      Serial.println("WiFi reconnected!");
       wifiState = WIFI_OK;
+      // Reset WebSocket connection
+      wsConnected = false;
+      webSocket.begin(IP_YORADIO, 80, "/ws");
+      webSocket.onEvent(webSocketEvent);
     }
   }
 
@@ -530,8 +591,9 @@ void loop() {
     bool curLeft = digitalRead(BTN_LEFT);
     bool curDown = digitalRead(BTN_DOWN);
 
-    if (curUp == LOW) sendCommand("volp=1");
-    if (curDown == LOW) sendCommand("volm=1");
+    // Volume buttons with state tracking (debounced like other buttons)
+    if (curUp == LOW && lastUpState == HIGH) sendCommand("volp=1");
+    if (curDown == LOW && lastDownState == HIGH) sendCommand("volm=1");
 
     if (curCenter == LOW && lastCenterState == HIGH) sendCommand("toggle=1");
     if (curLeft == LOW && lastLeftState == HIGH) sendCommand("prev=1");
