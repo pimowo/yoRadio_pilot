@@ -4,19 +4,25 @@
 #include <ArduinoJson.h>
 #include "font5x7.h"
 
-#define WIFI_SSID "pimowo"
-#define WIFI_PASS "ckH59LRZQzCDQFiUgj"
-#define IP_YORADIO "192.168.1.101"
+//==================================================================================================
+// sieć
+#define WIFI_SSID "pimowo"             // sieć 
+#define WIFI_PASS "ckH59LRZQzCDQFiUgj" // hasło sieci
+// yoRadio
+#define IP_YORADIO "192.168.1.101"     // IP yoRadio
+// uśpienie
+#define DEEP_SLEEP_TIMEOUT_SEC 20      // sekundy bezczynności przed deep sleep
+// klawiattura
+#define BTN_UP     7 // pin GÓRA
+#define BTN_RIGHT  4 // pin PRAWO
+#define BTN_CENTER 5 // pin OK
+#define BTN_LEFT   6 // pin LEWO 
+#define BTN_DOWN   3 // pin DÓŁ
+//==================================================================================================
 
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
 #define OLED_RESET -1
-
-#define BTN_UP     7
-#define BTN_RIGHT  4
-#define BTN_CENTER 5
-#define BTN_LEFT   6
-#define BTN_DOWN   3
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 WebSocketsClient webSocket;
@@ -32,6 +38,7 @@ String wykonawca = "";
 String utwor = "";
 
 unsigned long lastButtonCheck = 0;
+unsigned long lastActivityTime = 0;
 bool lastCenterState = HIGH;
 bool lastLeftState = HIGH;
 bool lastRightState = HIGH;
@@ -191,7 +198,7 @@ void prepareScroll(int line, const String& txt, int scale) {
   if (needsScroll) {
     // Tekst jest za długi - TERAZ dodaj sufiks do obliczenia
     int suffixWidth = getPixelWidth5x7(String(scrollSuffix), scale);
-    scrollStates[line]. text = txt + String(scrollSuffix) + txt;
+    scrollStates[line].text = txt + String(scrollSuffix) + txt;
     scrollStates[line].singleTextWidth = singleWidth;
     scrollStates[line].suffixWidth = suffixWidth;
     scrollStates[line].scrolling = true;
@@ -199,7 +206,7 @@ void prepareScroll(int line, const String& txt, int scale) {
     // Tekst się mieści - BEZ suffiksa, bez obliczania jego szerokości
     scrollStates[line].text = txt;
     scrollStates[line].singleTextWidth = singleWidth;
-    scrollStates[line]. suffixWidth = 0;  // Brak suffiksa
+    scrollStates[line].suffixWidth = 0;  // Brak suffiksa
     scrollStates[line].scrolling = false;
   }
 }
@@ -249,7 +256,7 @@ void updateScroll(int line) {
       scrollStates[activeScrollLine].t_start = now;
       scrollStates[activeScrollLine].t_last = now;
       scrollStates[activeScrollLine].pos = 0;
-      scrollStates[activeScrollLine]. isMoving = false;
+      scrollStates[activeScrollLine].isMoving = false;
     }
     
     state.t_last = now;
@@ -339,7 +346,7 @@ void updateDisplay() {
   if (wykonawca != prev_wykonawca) {
     prev_wykonawca = wykonawca;
     scrollStates[1].pos = 0;
-    scrollStates[1]. t_start = millis();
+    scrollStates[1].t_start = millis();
     scrollStates[1].t_last = millis();
     scrollStates[1].isMoving = false;
     prepareScroll(1, wykonawca, scrollConfs[1].fontsize);
@@ -350,7 +357,7 @@ void updateDisplay() {
     scrollStates[2].pos = 0;
     scrollStates[2].t_start = millis();
     scrollStates[2].t_last = millis();
-    scrollStates[2]. isMoving = false;
+    scrollStates[2].isMoving = false;
     prepareScroll(2, utwor, scrollConfs[2]. fontsize);
   }
 
@@ -361,7 +368,7 @@ void updateDisplay() {
 
   // === DRAW ALL LINES ===
   drawScrollLine(0, scrollConfs[0].fontsize);
-  drawScrollLine(1, scrollConfs[1]. fontsize);
+  drawScrollLine(1, scrollConfs[1].fontsize);
   drawScrollLine(2, scrollConfs[2].fontsize);
 
   // BOTTOM LINE: RSSI, battery, volume, bitrate
@@ -392,12 +399,12 @@ void updateDisplay() {
   int volX = 52;
   display.drawBitmap(volX, yLine, speakerIcon, 8, 8, SSD1306_WHITE);
   display.setCursor(volX + 10, yLine);
-  display. setTextSize(1);
+  display.setTextSize(1);
   display.setTextColor(SSD1306_WHITE);
   display.print(volume);
 
   display.setCursor(90, yLine);
-  display. print(bitrate);
+  display.print(bitrate);
   display.print("kbs");
 
   display.display();
@@ -422,7 +429,7 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
       return;
     }
     
-    if (doc. containsKey("payload")) {
+    if (doc.containsKey("payload")) {
       JsonArray arr = doc["payload"]. as<JsonArray>();
       for (JsonObject obj : arr) {
         String id = obj["id"].as<String>();
@@ -461,6 +468,26 @@ void sendCommand(const char* cmd) {
   }
 }
 
+void enterDeepSleep() {
+  Serial.println("Powering down WiFi...");
+  webSocket.disconnect();
+  WiFi.disconnect(true);  // wyłącz WiFi radio
+  WiFi.mode(WIFI_OFF);
+  
+  Serial.println("Entering deep sleep...");
+  
+  // GPIO5 (BTN_CENTER) = pin do wybudzenia
+  // 0 = LOW trigger (przycisk zwiera GND, więc LOW = naciśnięty)
+  esp_sleep_enable_ext0_wakeup(GPIO_NUM_5, 0);
+  
+  Serial.flush();
+  
+  // Przejdź w deep sleep
+  esp_deep_sleep_start();
+  // Kod poniżej NIE ZOSTANIE wykonany!
+  // ESP32 się wybudzi i zrobi pełny boot
+}
+
 void setup() {
   Serial.begin(115200);
   delay(100);
@@ -478,13 +505,16 @@ void setup() {
   }
 
   display.clearDisplay();
-  display. display();
+  display.display();
 
   Serial.print("Connecting to WiFi: ");
   Serial.println(WIFI_SSID);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
   wifiTimer = millis();
   wifiState = WIFI_CONNECTING;
+  
+  // Inicjalizacja timera aktywności
+  lastActivityTime = millis();
 }
 
 void loop() {
@@ -514,7 +544,7 @@ void loop() {
     }
   } else if (wifiState == WIFI_ERROR) {
     if (WiFi.status() == WL_CONNECTED) {
-      Serial. println("WiFi reconnected!");
+      Serial.println("WiFi reconnected!");
       wifiState = WIFI_OK;
     }
   }
@@ -530,17 +560,46 @@ void loop() {
     bool curLeft = digitalRead(BTN_LEFT);
     bool curDown = digitalRead(BTN_DOWN);
 
-    if (curUp == LOW) sendCommand("volp=1");
-    if (curDown == LOW) sendCommand("volm=1");
+    bool anyButtonPressed = false;
 
-    if (curCenter == LOW && lastCenterState == HIGH) sendCommand("toggle=1");
-    if (curLeft == LOW && lastLeftState == HIGH) sendCommand("prev=1");
-    if (curRight == LOW && lastRightState == HIGH) sendCommand("next=1");
+    if (curUp == LOW) {
+      sendCommand("volp=1");
+      anyButtonPressed = true;
+    }
+    if (curDown == LOW) {
+      sendCommand("volm=1");
+      anyButtonPressed = true;
+    }
+
+    if (curCenter == LOW && lastCenterState == HIGH) {
+      sendCommand("toggle=1");
+      anyButtonPressed = true;
+    }
+    if (curLeft == LOW && lastLeftState == HIGH) {
+      sendCommand("prev=1");
+      anyButtonPressed = true;
+    }
+    if (curRight == LOW && lastRightState == HIGH) {
+      sendCommand("next=1");
+      anyButtonPressed = true;
+    }
+
+    // Resetuj timer aktywności przy każdym naciśnięciu przycisku
+    if (anyButtonPressed) {
+      lastActivityTime = millis();
+    }
 
     lastCenterState = curCenter;
     lastLeftState = curLeft;
     lastRightState = curRight;
     lastUpState = curUp;
     lastDownState = curDown;
+  }
+
+  // Sprawdź bezczynność i przejdź w deep sleep
+  // Nota: unsigned arithmetic poprawnie obsługuje przepełnienie millis()
+  if (millis() - lastActivityTime > (DEEP_SLEEP_TIMEOUT_SEC * 1000)) {
+    enterDeepSleep();
+    // Kod poniżej nie zostanie wykonany
   }
 }
