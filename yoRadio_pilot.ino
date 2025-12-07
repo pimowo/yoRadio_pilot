@@ -37,6 +37,10 @@ String stacja = "";
 String wykonawca = "";
 String utwor = "";
 
+bool wsConnected = false;
+unsigned long lastWebSocketMessage = 0;
+const unsigned long WS_TIMEOUT_MS = 10000;  // 10 sekund timeout
+
 unsigned long lastButtonCheck = 0;
 unsigned long lastActivityTime = 0;
 bool lastCenterState = HIGH;
@@ -329,6 +333,22 @@ void updateDisplay() {
     return;
   }
 
+  // Sprawdź status WebSocket
+  bool wsError = !wsConnected || ((millis() - lastWebSocketMessage) > WS_TIMEOUT_MS);
+
+  if (wsError) {
+    display.clearDisplay();
+    
+    String errorText = "Brak yoRadio!";
+    int errorWidth = getPixelWidth5x7(errorText, 1);
+    int errorX = (SCREEN_WIDTH - errorWidth) / 2;
+    int errorY = 30;
+    drawString5x7(errorX, errorY, errorText, 1, SSD1306_WHITE);
+    
+    display.display();
+    return;  // Wyjdź z funkcji, nie rysuj reszty
+  }
+
   // MAIN SCREEN (WiFi OK)
   const int16_t lineHeight = 16;
   display.fillRect(0, 0, SCREEN_WIDTH, lineHeight, SSD1306_WHITE);
@@ -413,11 +433,14 @@ void updateDisplay() {
 void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
   if (type == WStype_CONNECTED) {
     Serial.println("WebSocket connected!");
+    wsConnected = true;
+    lastWebSocketMessage = millis();
     webSocket.sendTXT("getindex=1");
     return;
   }
 
   if (type == WStype_TEXT) {
+    lastWebSocketMessage = millis();
     Serial.print("WebSocket message: ");
     Serial.println((char*)payload);
     
@@ -457,6 +480,7 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
   
   if (type == WStype_DISCONNECTED) {
     Serial.println("WebSocket disconnected!");
+    wsConnected = false;
   }
 }
 
@@ -469,6 +493,11 @@ void sendCommand(const char* cmd) {
 }
 
 void enterDeepSleep() {
+  Serial.println("Clearing display and powering down...");
+  display.clearDisplay();
+  display.display();
+  display.ssd1306_command(0xAE);  // Wyłącz OLED
+  
   Serial.println("Powering down WiFi...");
   webSocket.disconnect();
   WiFi.disconnect(true);  // wyłącz WiFi radio
