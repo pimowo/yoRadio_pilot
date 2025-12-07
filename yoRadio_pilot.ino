@@ -7,7 +7,7 @@
 #define WIFI_SSID "pimowo"
 #define WIFI_PASS "ckH59LRZQzCDQFiUgj"
 #define IP_YORADIO "192.168.1.101"
-#define DEEP_SLEEP_TIMEOUT_SEC 15  // Sekundy bezczynności przed deep sleep
+#define DEEP_SLEEP_TIMEOUT_SEC 15  // sekundy bezczynności przed deep sleep
 
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
@@ -466,7 +466,7 @@ void sendCommand(const char* cmd) {
 void enterDeepSleep() {
   Serial.println("Powering down WiFi...");
   webSocket.disconnect();
-  WiFi.disconnect(true);  // true = wyłącz WiFi radio
+  WiFi.disconnect(true);  // wyłącz WiFi radio
   WiFi.mode(WIFI_OFF);
   
   Serial.println("Entering deep sleep...");
@@ -592,6 +592,7 @@ void loop() {
   }
 
   // Sprawdź bezczynność i przejdź w deep sleep
+  // Nota: unsigned arithmetic poprawnie obsługuje przepełnienie millis()
   if (millis() - lastActivityTime > (DEEP_SLEEP_TIMEOUT_SEC * 1000)) {
     enterDeepSleep();
     // Kod poniżej nie zostanie wykonany
