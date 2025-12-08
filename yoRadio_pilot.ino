@@ -56,6 +56,7 @@ int batteryPercent = 100;
 String meta = "";
 int volume = 0;
 int bitrate = 0;
+String fmt = "";
 int rssi = 0;
 String playerwrap = "";
 String stacja = "";
@@ -74,6 +75,10 @@ bool lastLeftState = HIGH;
 bool lastRightState = HIGH;
 bool lastUpState = HIGH;
 bool lastDownState = HIGH;
+
+bool volumeChanging = false;
+unsigned long volumeChangeTime = 0;
+const unsigned long VOLUME_DISPLAY_TIME = 2000;  // 2 sekundy
 
 const unsigned char speakerIcon [] PROGMEM = {
   0b00011000, 0b00111000, 0b11111100, 0b11111100,
@@ -316,6 +321,52 @@ void updateDisplay() {
   
   display.clearDisplay();
 
+  // Check if volume screen should be hidden
+  if (volumeChanging && (millis() - volumeChangeTime > VOLUME_DISPLAY_TIME)) {
+    volumeChanging = false;
+  }
+
+  // VOLUME SCREEN
+  if (volumeChanging) {
+    // Top bar with "GŁOŚNOŚĆ" in negative mode
+    display.fillRect(0, 0, SCREEN_WIDTH, 16, SSD1306_WHITE);
+    String headerText = "GLOSNOSC";
+    int headerWidth = getPixelWidth5x7(headerText, 1);
+    int headerX = (SCREEN_WIDTH - headerWidth) / 2;
+    drawString5x7(headerX, 4, headerText, 1, SSD1306_BLACK);
+    
+    // Center: Speaker icon and volume number with scale 3
+    int volScale = 3;
+    String volText = String(volume);
+    int volTextWidth = getPixelWidth5x7(volText, volScale);
+    int iconWidth = 8 * volScale;  // Speaker icon is 8 pixels wide
+    int spacing = 4 * volScale;     // Space between icon and number
+    int totalWidth = iconWidth + spacing + volTextWidth;
+    int startX = (SCREEN_WIDTH - totalWidth) / 2;
+    int centerY = 28;  // Vertically centered
+    
+    // Draw scaled speaker icon
+    for (int sy = 0; sy < 8; sy++) {
+      uint8_t line = pgm_read_byte_near(speakerIcon + sy);
+      for (int sx = 0; sx < 8; sx++) {
+        if (line & (1 << sx)) {
+          display.fillRect(startX + sx * volScale, centerY + sy * volScale, volScale, volScale, SSD1306_WHITE);
+        }
+      }
+    }
+    
+    // Draw volume number
+    drawString5x7(startX + iconWidth + spacing, centerY, volText, volScale, SSD1306_WHITE);
+    
+    // Bottom: IP address with "IP: " prefix, left-aligned
+    String ipText = "IP: " + WiFi.localIP().toString();
+    int ipY = 54;
+    drawString5x7(2, ipY, ipText, 1, SSD1306_WHITE);
+    
+    display.display();
+    return;
+  }
+
   if (wifiState == WIFI_CONNECTING) {
     static unsigned long lastAnim = 0;
     static int animStep = 1;
@@ -470,8 +521,12 @@ void updateDisplay() {
   display.print(volume);
 
   display.setCursor(90, yLine);
-  display.print(bitrate);
-  display.print("kbs");
+  if (bitrate > 0) {
+    display.print(bitrate);
+  }
+  if (!fmt.isEmpty()) {
+    display.print(fmt);
+  }
 
   // int bitrateX = 80;
   // display.fillRect(bitrateX, yLine, SCREEN_WIDTH - bitrateX, 8, SSD1306_WHITE);  // Negatyw
@@ -525,6 +580,7 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
         }
         if (id == "volume") volume = obj["value"].as<int>();
         if (id == "bitrate") bitrate = obj["value"].as<int>();
+        if (id == "fmt") fmt = obj["value"].as<String>();
         if (id == "playerwrap") {
           playerwrap = obj["value"].as<String>();
           Serial.print("DEBUG: playerwrap = '");  // ← DODAJ
@@ -767,10 +823,14 @@ void loop() {
 
     if (curUp == LOW) {
       sendCommand("volp=1");
+      volumeChanging = true;
+      volumeChangeTime = millis();
       anyButtonPressed = true;
     }
     if (curDown == LOW) {
       sendCommand("volm=1");
+      volumeChanging = true;
+      volumeChangeTime = millis();
       anyButtonPressed = true;
     }
 
