@@ -393,6 +393,7 @@ void updateDisplay() {
 
   // === VOLUME SCREEN ===
   // Check if volume screen should be hidden
+  // Note: unsigned arithmetic correctly handles millis() overflow
   if (volumeChanging && (millis() - volumeChangeTime > VOLUME_SCREEN_TIMEOUT_MS)) {
     volumeChanging = false;
   }
@@ -519,10 +520,8 @@ void updateDisplay() {
 
   // Volume display with speaker icon and custom 5x7 font
   String volumeStr = String(volume);
-  int volumeTextWidth = getPixelWidth5x7(volumeStr, 1);
   int speakerWidth = 8;
   int spacing = 2;
-  int totalVolWidth = speakerWidth + spacing + volumeTextWidth;
   
   // Position volume display between battery (ends ~48) and bitrate (starts ~90)
   int volStartX = 57;  // Starting position for volume group
