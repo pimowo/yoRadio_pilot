@@ -78,7 +78,7 @@ bool lastDownState = HIGH;
 
 bool volumeChanging = false;
 unsigned long volumeChangeTime = 0;
-const unsigned long VOLUME_DISPLAY_TIME = 2000;  // 2 sekundy
+const unsigned long VOLUME_DISPLAY_TIME = 2000;  // 2 sekundy wyświetlania
 
 const unsigned char speakerIcon [] PROGMEM = {
   0b00011000, 0b00111000, 0b11111100, 0b11111100,
@@ -330,7 +330,7 @@ void updateDisplay() {
   if (volumeChanging) {
     // Top bar with "GŁOŚNOŚĆ" in negative mode
     display.fillRect(0, 0, SCREEN_WIDTH, 16, SSD1306_WHITE);
-    String headerText = "GLOSNOSC";
+    String headerText = "GŁOŚNOŚĆ";
     int headerWidth = getPixelWidth5x7(headerText, 1);
     int headerX = (SCREEN_WIDTH - headerWidth) / 2;
     drawString5x7(headerX, 4, headerText, 1, SSD1306_BLACK);
@@ -349,7 +349,7 @@ void updateDisplay() {
     for (int sy = 0; sy < 8; sy++) {
       uint8_t line = pgm_read_byte_near(speakerIcon + sy);
       for (int sx = 0; sx < 8; sx++) {
-        if (line & (1 << sx)) {
+        if (line & (1 << (7 - sx))) {
           display.fillRect(startX + sx * volScale, centerY + sy * volScale, volScale, volScale, SSD1306_WHITE);
         }
       }
@@ -521,10 +521,13 @@ void updateDisplay() {
   display.print(volume);
 
   display.setCursor(90, yLine);
-  if (bitrate > 0) {
+  if (bitrate > 0 && !fmt.isEmpty()) {
     display.print(bitrate);
-  }
-  if (!fmt.isEmpty()) {
+    display.print(" ");
+    display.print(fmt);
+  } else if (bitrate > 0) {
+    display.print(bitrate);
+  } else if (!fmt.isEmpty()) {
     display.print(fmt);
   }
 
