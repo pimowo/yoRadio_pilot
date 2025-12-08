@@ -23,7 +23,8 @@
 // yoRadio
 #define IP_YORADIO "192.168.1.101"     // IP yoRadio
 // uśpienie
-#define DEEP_SLEEP_TIMEOUT_SEC 60      // sekundy bezczynności przed deep sleep
+#define DEEP_SLEEP_TIMEOUT_SEC 60      // sekundy bezczynności przed deep sleep (podczas odtwarzania)
+#define DEEP_SLEEP_TIMEOUT_STOPPED_SEC 120  // sekundy bezczynności przed deep sleep (gdy playback zatrzymany)
 // klawiattura
 #define BTN_UP     7                   // pin GÓRA
 #define BTN_RIGHT  4                   // pin PRAWO
@@ -778,7 +779,18 @@ void loop() {
 
   // Sprawdź bezczynność i przejdź w deep sleep
   // Nota: unsigned arithmetic poprawnie obsługuje przepełnienie millis()
-  if (millis() - lastActivityTime > (DEEP_SLEEP_TIMEOUT_SEC * 1000)) {
+  unsigned long inactivityTime = millis() - lastActivityTime;
+  
+  // Sprawdź status playera i wybierz odpowiedni timeout
+  bool playerStopped = (playerwrap == "stop" || playerwrap == "pause");
+  unsigned long timeoutMs = playerStopped ? (DEEP_SLEEP_TIMEOUT_STOPPED_SEC * 1000) : (DEEP_SLEEP_TIMEOUT_SEC * 1000);
+  
+  if (inactivityTime > timeoutMs) {
+    if (playerStopped) {
+      Serial.println("Deep sleep triggered: Player stopped/paused timeout");
+    } else {
+      Serial.println("Deep sleep triggered: General inactivity timeout");
+    }
     enterDeepSleep();
     // Kod poniżej nie zostanie wykonany
   }
