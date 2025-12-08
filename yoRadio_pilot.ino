@@ -75,6 +75,11 @@ bool lastRightState = HIGH;
 bool lastUpState = HIGH;
 bool lastDownState = HIGH;
 
+// Volume screen state
+bool volumeChanging = false;
+unsigned long volumeChangeTime = 0;
+const unsigned long VOLUME_SCREEN_TIMEOUT_MS = 2000;  // 2 seconds
+
 const unsigned char speakerIcon [] PROGMEM = {
   0b00011000, 0b00111000, 0b11111100, 0b11111100,
   0b11111100, 0b00111000, 0b00011000, 0b00001000
@@ -386,36 +391,86 @@ void updateDisplay() {
     return;  // Wyjdź z funkcji, nie rysuj reszty
   }
 
+  // === VOLUME SCREEN ===
+  // Check if volume screen should be hidden
+  if (volumeChanging && (millis() - volumeChangeTime > VOLUME_SCREEN_TIMEOUT_MS)) {
+    volumeChanging = false;
+  }
+
+  if (volumeChanging) {
+    // Top bar: "GŁOŚNOŚĆ" in inverted mode (white background, black text)
+    const int16_t topBarHeight = 16;
+    display.fillRect(0, 0, SCREEN_WIDTH, topBarHeight, SSD1306_WHITE);
+    
+    String volumeLabel = "GLOSNOSC";
+    int labelWidth = getPixelWidth5x7(volumeLabel, 2);
+    int labelX = (SCREEN_WIDTH - labelWidth) / 2;
+    drawString5x7(labelX, 1, volumeLabel, 2, SSD1306_BLACK);
+    
+    // Center: Large volume number (scale 3)
+    String volumeStr = String(volume);
+    int volWidth = getPixelWidth5x7(volumeStr, 3);
+    int volX = (SCREEN_WIDTH - volWidth) / 2;
+    int volY = 28;
+    drawString5x7(volX, volY, volumeStr, 3, SSD1306_WHITE);
+    
+    // Bottom: IP address
+    String ipText = WiFi.localIP().toString();
+    int ipWidth = getPixelWidth5x7(ipText, 1);
+    int ipX = (SCREEN_WIDTH - ipWidth) / 2;
+    int ipY = 54;
+    drawString5x7(ipX, ipY, ipText, 1, SSD1306_WHITE);
+    
+    display.display();
+    return;
+  }
+
   // MAIN SCREEN (WiFi OK)
   const int16_t lineHeight = 16;
   display.fillRect(0, 0, SCREEN_WIDTH, lineHeight, SSD1306_WHITE);
 
+  // === DYNAMIC ARTIST/TRACK LOGIC ===
+  // Determine what to show on each line based on artist availability
+  String line1Text = stacja;  // Line 1 always shows station
+  String line2Text = "";
+  String line3Text = "";
+  
+  if (wykonawca.length() > 0) {
+    // Artist is available: Line 1 = station, Line 2 = artist, Line 3 = track
+    line2Text = wykonawca;
+    line3Text = utwor;
+  } else {
+    // Artist is NOT available: Line 1 = station, Line 2 = track, Line 3 = empty
+    line2Text = utwor;
+    line3Text = "";
+  }
+
   // === PREPARE SCROLLS - TYLKO PRZY ZMIANIE =====
-  if (stacja != prev_stacja) {
-    prev_stacja = stacja;
+  if (line1Text != prev_stacja) {
+    prev_stacja = line1Text;
     scrollStates[0].pos = 0;
     scrollStates[0].t_start = millis();
     scrollStates[0].t_last = millis();
     scrollStates[0].isMoving = false;
-    prepareScroll(0, stacja, scrollConfs[0].fontsize);
+    prepareScroll(0, line1Text, scrollConfs[0].fontsize);
   }
 
-  if (wykonawca != prev_wykonawca) {
-    prev_wykonawca = wykonawca;
+  if (line2Text != prev_wykonawca) {
+    prev_wykonawca = line2Text;
     scrollStates[1].pos = 0;
     scrollStates[1].t_start = millis();
     scrollStates[1].t_last = millis();
     scrollStates[1].isMoving = false;
-    prepareScroll(1, wykonawca, scrollConfs[1].fontsize);
+    prepareScroll(1, line2Text, scrollConfs[1].fontsize);
   }
 
-  if (utwor != prev_utwor) {
-    prev_utwor = utwor;
+  if (line3Text != prev_utwor) {
+    prev_utwor = line3Text;
     scrollStates[2].pos = 0;
     scrollStates[2].t_start = millis();
     scrollStates[2].t_last = millis();
     scrollStates[2].isMoving = false;
-    prepareScroll(2, utwor, scrollConfs[2].fontsize);
+    prepareScroll(2, line3Text, scrollConfs[2].fontsize);
   }
 
   // === UPDATE SCROLLS ===
@@ -462,12 +517,18 @@ void updateDisplay() {
     if (fillWidth > 0) display.fillRect(batX + 1, yLine + 1, fillWidth, batHeight - 2, SSD1306_WHITE);
   }
 
-  int volX = 57;
-  display.drawBitmap(volX, yLine, speakerIcon, 8, 8, SSD1306_WHITE);
-  display.setCursor(volX + 10, yLine);
-  display.setTextSize(1);
-  display.setTextColor(SSD1306_WHITE);
-  display.print(volume);
+  // Volume display with speaker icon and custom 5x7 font
+  String volumeStr = String(volume);
+  int volumeTextWidth = getPixelWidth5x7(volumeStr, 1);
+  int speakerWidth = 8;
+  int spacing = 2;
+  int totalVolWidth = speakerWidth + spacing + volumeTextWidth;
+  
+  // Position volume display between battery (ends ~48) and bitrate (starts ~90)
+  int volStartX = 57;  // Starting position for volume group
+  
+  display.drawBitmap(volStartX, yLine, speakerIcon, 8, 8, SSD1306_WHITE);
+  drawString5x7(volStartX + speakerWidth + spacing, yLine, volumeStr, 1, SSD1306_WHITE);
 
   display.setCursor(90, yLine);
   display.print(bitrate);
@@ -768,10 +829,14 @@ void loop() {
     if (curUp == LOW) {
       sendCommand("volp=1");
       anyButtonPressed = true;
+      volumeChanging = true;
+      volumeChangeTime = millis();
     }
     if (curDown == LOW) {
       sendCommand("volm=1");
       anyButtonPressed = true;
+      volumeChanging = true;
+      volumeChangeTime = millis();
     }
 
     if (curCenter == LOW && lastCenterState == HIGH) {
