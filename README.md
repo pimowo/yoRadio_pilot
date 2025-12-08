@@ -6,8 +6,12 @@ Projekt sterownika wyświetlacza OLED dla radioodbiornika YoRadio.  Obsługuje w
 
 ### Wyświetlanie informacji
 - **Linia 1 (Stacja)** - nazwa stacji radiowej na czarnym tle
-- **Linia 2 (Wykonawca)** - imię i nazwisko wykonawcy
-- **Linia 3 (Utwór)** - tytuł utworu
+- **Linia 2** - dynamicznie:
+  - Gdy jest artysta: imię i nazwisko wykonawcy
+  - Gdy brak artysty: tytuł utworu (przesunięty z linii 3)
+- **Linia 3** - dynamicznie:
+  - Gdy jest artysta: tytuł utworu
+  - Gdy brak artysty: pusta (nie wyświetlana)
 - **Dolna linia** - RSSI (sygnał WiFi), bateria, głośność, bitrate
 
 ### Przewijanie tekstu

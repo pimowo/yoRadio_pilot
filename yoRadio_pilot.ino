@@ -400,22 +400,48 @@ void updateDisplay() {
     prepareScroll(0, stacja, scrollConfs[0].fontsize);
   }
 
-  if (wykonawca != prev_wykonawca) {
-    prev_wykonawca = wykonawca;
-    scrollStates[1].pos = 0;
-    scrollStates[1].t_start = millis();
-    scrollStates[1].t_last = millis();
-    scrollStates[1].isMoving = false;
-    prepareScroll(1, wykonawca, scrollConfs[1].fontsize);
-  }
+  // Dynamiczne przydzielanie treści do linii 1 i 2 w zależności od dostępności artysty
+  bool hasArtist = (wykonawca.length() > 0);
+  
+  if (hasArtist) {
+    // Gdy jest artysta: Linia 1 = Artysta, Linia 2 = Utwór
+    if (wykonawca != prev_wykonawca) {
+      prev_wykonawca = wykonawca;
+      scrollStates[1].pos = 0;
+      scrollStates[1].t_start = millis();
+      scrollStates[1].t_last = millis();
+      scrollStates[1].isMoving = false;
+      prepareScroll(1, wykonawca, scrollConfs[1].fontsize);
+    }
 
-  if (utwor != prev_utwor) {
-    prev_utwor = utwor;
-    scrollStates[2].pos = 0;
-    scrollStates[2].t_start = millis();
-    scrollStates[2].t_last = millis();
-    scrollStates[2].isMoving = false;
-    prepareScroll(2, utwor, scrollConfs[2].fontsize);
+    if (utwor != prev_utwor) {
+      prev_utwor = utwor;
+      scrollStates[2].pos = 0;
+      scrollStates[2].t_start = millis();
+      scrollStates[2].t_last = millis();
+      scrollStates[2].isMoving = false;
+      prepareScroll(2, utwor, scrollConfs[2].fontsize);
+    }
+  } else {
+    // Gdy brak artysty: Linia 1 = Utwór, Linia 2 = Pusta
+    if (utwor != prev_utwor) {
+      prev_utwor = utwor;
+      scrollStates[1].pos = 0;
+      scrollStates[1].t_start = millis();
+      scrollStates[1].t_last = millis();
+      scrollStates[1].isMoving = false;
+      prepareScroll(1, utwor, scrollConfs[1].fontsize);
+    }
+
+    // Wyczyść linię 2 gdy brak artysty (tylko gdy wykonawca się zmienił lub jest pusty)
+    if (wykonawca != prev_wykonawca || scrollStates[2].text != "") {
+      prev_wykonawca = wykonawca;
+      scrollStates[2].pos = 0;
+      scrollStates[2].t_start = millis();
+      scrollStates[2].t_last = millis();
+      scrollStates[2].isMoving = false;
+      prepareScroll(2, "", scrollConfs[2].fontsize);
+    }
   }
 
   // === UPDATE SCROLLS ===
