@@ -75,6 +75,11 @@ bool lastRightState = HIGH;
 bool lastUpState = HIGH;
 bool lastDownState = HIGH;
 
+// Volume screen state
+bool volumeChanging = false;
+unsigned long volumeChangeTime = 0;
+const unsigned long VOLUME_SCREEN_TIMEOUT_MS = 2000;
+
 const unsigned char speakerIcon [] PROGMEM = {
   0b00011000, 0b00111000, 0b11111100, 0b11111100,
   0b11111100, 0b00111000, 0b00011000, 0b00001000
@@ -314,7 +319,39 @@ void updateDisplay() {
   }
   lastDisplayUpdate = millis();
   
+  // Check if volume screen timeout has elapsed
+  if (volumeChanging && (millis() - volumeChangeTime > VOLUME_SCREEN_TIMEOUT_MS)) {
+    volumeChanging = false;
+  }
+  
   display.clearDisplay();
+  
+  // Show volume screen if volume is being changed
+  if (volumeChanging) {
+    // Top bar with "GŁOŚNOŚĆ" in negative (white background, black text)
+    display.fillRect(0, 0, SCREEN_WIDTH, 16, SSD1306_WHITE);
+    String titleText = "GLOSNOSC";
+    int titleWidth = getPixelWidth5x7(titleText, 1);
+    int titleX = (SCREEN_WIDTH - titleWidth) / 2;
+    drawString5x7(titleX, 4, titleText, 1, SSD1306_BLACK);
+    
+    // Center: Large volume number
+    String volumeText = String(volume);
+    int volumeScale = 3;  // Large font
+    int volumeWidth = getPixelWidth5x7(volumeText, volumeScale);
+    int volumeX = (SCREEN_WIDTH - volumeWidth) / 2;
+    int volumeY = 28;  // Center vertically
+    drawString5x7(volumeX, volumeY, volumeText, volumeScale, SSD1306_WHITE);
+    
+    // Bottom left: IP address in small font
+    String ipText = String(STATIC_IP);
+    int ipX = 2;
+    int ipY = 54;
+    drawString5x7(ipX, ipY, ipText, 1, SSD1306_WHITE);
+    
+    display.display();
+    return;
+  }
 
   if (wifiState == WIFI_CONNECTING) {
     static unsigned long lastAnim = 0;
@@ -768,10 +805,14 @@ void loop() {
     if (curUp == LOW) {
       sendCommand("volp=1");
       anyButtonPressed = true;
+      volumeChanging = true;
+      volumeChangeTime = millis();
     }
     if (curDown == LOW) {
       sendCommand("volm=1");
       anyButtonPressed = true;
+      volumeChanging = true;
+      volumeChangeTime = millis();
     }
 
     if (curCenter == LOW && lastCenterState == HIGH) {
