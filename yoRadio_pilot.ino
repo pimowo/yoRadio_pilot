@@ -393,7 +393,8 @@ void updateDisplay() {
 
   // === VOLUME SCREEN ===
   // Check if volume screen should be hidden
-  // Note: unsigned arithmetic correctly handles millis() overflow
+  // Note: unsigned arithmetic correctly handles millis() overflow due to wraparound behavior
+  // in unsigned subtraction, ensuring comparison remains valid even after overflow (~50 days)
   if (volumeChanging && (millis() - volumeChangeTime > VOLUME_SCREEN_TIMEOUT_MS)) {
     volumeChanging = false;
   }
@@ -403,7 +404,7 @@ void updateDisplay() {
     const int16_t topBarHeight = 16;
     display.fillRect(0, 0, SCREEN_WIDTH, topBarHeight, SSD1306_WHITE);
     
-    String volumeLabel = "GLOSNOSC";
+    String volumeLabel = "GŁOŚNOŚĆ";
     int labelWidth = getPixelWidth5x7(volumeLabel, 2);
     int labelX = (SCREEN_WIDTH - labelWidth) / 2;
     drawString5x7(labelX, 1, volumeLabel, 2, SSD1306_BLACK);
