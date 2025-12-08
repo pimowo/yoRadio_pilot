@@ -85,7 +85,7 @@ const unsigned char wifiErrorIcon[] PROGMEM = {
   0b01000010, 0b00100100, 0b00011000, 0b00001000
 };
 
-enum WifiState { WIFI_CONNECTING, WIFI_ERROR, WIFI_OK };
+enum WifiState { WIFI_CONNECTING, WIFI_ERROR, WIFI_OK, WIFI_WS_CONNECTING };
 WifiState wifiState = WIFI_CONNECTING;
 
 unsigned long wifiTimer = 0;
@@ -372,7 +372,40 @@ void updateDisplay() {
     return;
   }
 
-  // Sprawdź status WebSocket
+  if (wifiState == WIFI_WS_CONNECTING) {
+    // Animacja łączenia WebSocket
+    static unsigned long lastAnim = 0;
+    static int animStep = 1;
+    if (millis() - lastAnim > 250) {
+      lastAnim = millis();
+      animStep++;
+      if (animStep > 4) animStep = 1;
+    }
+    
+    int barWidth = 4;
+    int barSpacing = 2;
+    int barHeights[4] = {2, 4, 6, 8};
+    int totalWidth = animStep * (barWidth + barSpacing) - barSpacing;
+    int startX = (SCREEN_WIDTH - totalWidth) / 2;
+    int yLine = 15;
+    
+    for (int i = 0; i < animStep; i++) {
+      int x = startX + i * (barWidth + barSpacing);
+      display.fillRect(x, yLine + (8 - barHeights[i]), barWidth, barHeights[i], SSD1306_WHITE);
+    }
+    
+    String connectingText = "Łączenie WebSocket...";
+    int connectingWidth = getPixelWidth5x7(connectingText, 1);
+    int connectingX = (SCREEN_WIDTH - connectingWidth) / 2;
+    int connectingY = 35;
+    
+    drawString5x7(connectingX, connectingY, connectingText, 1, SSD1306_WHITE);
+    
+    display.display();
+    return;
+  }
+
+  // Sprawdź status WebSocket - tylko gdy jesteśmy w stanie WIFI_OK
   bool wsError = !wsConnected || ((millis() - lastWebSocketMessage) > WS_TIMEOUT_MS);
 
   if (wsError) {
@@ -535,7 +568,7 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
       }
     }
 
-    if (wifiState == WIFI_OK) updateDisplay();
+    if (wifiState == WIFI_OK || wifiState == WIFI_WS_CONNECTING) updateDisplay();
   }
   
   if (type == WStype_DISCONNECTED) {
@@ -728,15 +761,27 @@ void loop() {
       Serial.println("WiFi connected!");
       Serial.print("IP: ");
       Serial.println(WiFi.localIP());
-      wifiState = WIFI_OK;
+      wifiState = WIFI_WS_CONNECTING;
       Serial.print("Connecting to WebSocket at ");
       Serial.print(IP_YORADIO);
       Serial.println(":80/ws");
+      lastWebSocketMessage = millis();  // Reset timer when starting WebSocket connection
       webSocket.begin(IP_YORADIO, 80, "/ws");
       webSocket.onEvent(webSocketEvent);
     }
     if (millis() - wifiTimer > wifiTimeout) {
       Serial.println("WiFi connection timeout!");
+      wifiState = WIFI_ERROR;
+    }
+  } else if (wifiState == WIFI_WS_CONNECTING) {
+    // Wait for WebSocket to connect
+    if (wsConnected) {
+      Serial.println("WebSocket connected, transitioning to WIFI_OK");
+      wifiState = WIFI_OK;
+    }
+    // Check for WebSocket connection timeout
+    if ((millis() - lastWebSocketMessage) > WS_TIMEOUT_MS) {
+      Serial.println("WebSocket connection timeout!");
       wifiState = WIFI_ERROR;
     }
   } else if (wifiState == WIFI_OK) {
