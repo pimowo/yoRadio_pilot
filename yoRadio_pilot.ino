@@ -8,8 +8,8 @@
 #include "font5x7.h"
 
 //==================================================================================================
-// Wersja firmware
-#define FIRMWARE_VERSION "0.0.1"         // wersja oprogramowania
+// firmware
+#define FIRMWARE_VERSION "0.2"           // wersja oprogramowania
 // sieć
 #define WIFI_SSID "pimowo"               // sieć 
 #define WIFI_PASS "ckH59LRZQzCDQFiUgj"   // hasło sieci
@@ -56,11 +56,13 @@ int batteryPercent = 100;
 String meta = "";
 int volume = 0;
 int bitrate = 0;
+String fmt = "";
 int rssi = 0;
 String playerwrap = "";
 String stacja = "";
 String wykonawca = "";
 String utwor = "";
+bool showCreatorLine = true;
 
 bool wsConnected = false;
 unsigned long lastWebSocketMessage = 0;
@@ -74,6 +76,10 @@ bool lastLeftState = HIGH;
 bool lastRightState = HIGH;
 bool lastUpState = HIGH;
 bool lastDownState = HIGH;
+
+bool volumeChanging = false;
+unsigned long volumeChangeTime = 0;
+const unsigned long VOLUME_DISPLAY_TIME = 2000;  // 2 sekundy wyświetlania
 
 const unsigned char speakerIcon [] PROGMEM = {
   0b00011000, 0b00111000, 0b11111100, 0b11111100,
@@ -316,6 +322,40 @@ void updateDisplay() {
   
   display.clearDisplay();
 
+  // Check if volume screen should be hidden
+  if (volumeChanging && (millis() - volumeChangeTime > VOLUME_DISPLAY_TIME)) {
+    volumeChanging = false;
+  }
+
+  // VOLUME SCREEN
+  if (volumeChanging) {
+    // Top bar with "GŁOŚNOŚĆ" in negative mode
+    display.fillRect(0, 0, SCREEN_WIDTH, 16, SSD1306_WHITE);
+    String headerText = "GŁOŚNOŚĆ";
+    int headerWidth = getPixelWidth5x7(headerText, 2);  // ← ZMIEŃ NA 2
+    int headerX = (SCREEN_WIDTH - headerWidth) / 2;
+    drawString5x7(headerX, 1, headerText, 2, SSD1306_BLACK);  // ← ZMIEŃ fontsize NA 2
+    
+    // Center: Volume number with scale 2 (IDENTYCZNIE JAK STACJA)
+    int volScale = 3;  // ← ZMIEŃ Z 3 NA 2
+    String volText = String(volume);
+    int volTextWidth = getPixelWidth5x7(volText, volScale);
+    int totalWidth = volTextWidth;
+    int startX = (SCREEN_WIDTH - totalWidth) / 2;
+    int centerY = 25;  // ← ZMIEŃ Z 25 NA 19 (identycznie jak artysta)
+    
+    // Draw volume number (BEZ IKONY)
+    drawString5x7(startX, centerY, volText, volScale, SSD1306_WHITE);
+    
+    // Bottom: IP address
+    String ipText = "IP:" + WiFi.localIP().toString();
+    int ipY = 54;
+    drawString5x7(2, ipY, ipText, 1, SSD1306_WHITE);
+    
+    display.display();
+    return;
+  }
+
   if (wifiState == WIFI_CONNECTING) {
     static unsigned long lastAnim = 0;
     static int animStep = 1;
@@ -393,40 +433,64 @@ void updateDisplay() {
   // === PREPARE SCROLLS - TYLKO PRZY ZMIANIE =====
   if (stacja != prev_stacja) {
     prev_stacja = stacja;
-    scrollStates[0].pos = 0;
+    scrollStates[0]. pos = 0;
     scrollStates[0].t_start = millis();
     scrollStates[0].t_last = millis();
     scrollStates[0].isMoving = false;
-    prepareScroll(0, stacja, scrollConfs[0].fontsize);
+    prepareScroll(0, stacja, scrollConfs[0]. fontsize);
   }
 
-  if (wykonawca != prev_wykonawca) {
-    prev_wykonawca = wykonawca;
-    scrollStates[1].pos = 0;
-    scrollStates[1].t_start = millis();
-    scrollStates[1].t_last = millis();
-    scrollStates[1].isMoving = false;
-    prepareScroll(1, wykonawca, scrollConfs[1].fontsize);
-  }
+  // Jeśli artysty brak, utwór przeskakuje do drugiej linii
+  if (wykonawca. isEmpty()) {
+    // Artysty brak - utwór na linii artysty
+    if (utwor != prev_utwor) {
+      prev_utwor = utwor;
+      scrollStates[1].pos = 0;
+      scrollStates[1].t_start = millis();
+      scrollStates[1].t_last = millis();
+      scrollStates[1].isMoving = false;
+      prepareScroll(1, utwor, scrollConfs[1]. fontsize);
+    }
+    showCreatorLine = false;
+  } else {
+    // Jest artysta - normalne wyświetlanie
+    if (wykonawca != prev_wykonawca) {
+      prev_wykonawca = wykonawca;
+      scrollStates[1].pos = 0;
+      scrollStates[1].t_start = millis();
+      scrollStates[1].t_last = millis();
+      scrollStates[1].isMoving = false;
+      prepareScroll(1, wykonawca, scrollConfs[1].fontsize);
+    }
 
-  if (utwor != prev_utwor) {
-    prev_utwor = utwor;
-    scrollStates[2].pos = 0;
-    scrollStates[2].t_start = millis();
-    scrollStates[2].t_last = millis();
-    scrollStates[2].isMoving = false;
-    prepareScroll(2, utwor, scrollConfs[2].fontsize);
+    if (utwor != prev_utwor) {
+      prev_utwor = utwor;
+      scrollStates[2].pos = 0;
+      scrollStates[2].t_start = millis();
+      scrollStates[2].t_last = millis();
+      scrollStates[2].isMoving = false;
+      prepareScroll(2, utwor, scrollConfs[2]. fontsize);
+    }
+    showCreatorLine = true;
   }
 
   // === UPDATE SCROLLS ===
   updateScroll(0);
-  updateScroll(1);
-  updateScroll(2);
+  if (showCreatorLine) {
+    updateScroll(1);
+    updateScroll(2);
+  } else {
+    updateScroll(1);  // Tylko linia z utworem
+  }
 
   // === DRAW ALL LINES ===
   drawScrollLine(0, scrollConfs[0].fontsize);
-  drawScrollLine(1, scrollConfs[1].fontsize);
-  drawScrollLine(2, scrollConfs[2].fontsize);
+  if (showCreatorLine) {
+    drawScrollLine(1, scrollConfs[1].fontsize);  // Artysta
+    drawScrollLine(2, scrollConfs[2]. fontsize);  // Utwór
+  } else {
+    drawScrollLine(1, scrollConfs[1]. fontsize);  // Utwór na linii artysty
+  }
 
   // BOTTOM LINE: RSSI, battery, volume, bitrate
   const int yLine = 52;
@@ -445,7 +509,7 @@ void updateDisplay() {
       display.drawFastHLine(x, yLine + (8 - barHeights[i]), barWidth, SSD1306_WHITE);
   }
 
-  int batX = 26;
+  int batX = 23;
   int batWidth = 20;
   int batHeight = 8;
   
@@ -462,25 +526,29 @@ void updateDisplay() {
     if (fillWidth > 0) display.fillRect(batX + 1, yLine + 1, fillWidth, batHeight - 2, SSD1306_WHITE);
   }
 
-  int volX = 57;
+  int volX = 52;
   display.drawBitmap(volX, yLine, speakerIcon, 8, 8, SSD1306_WHITE);
   display.setCursor(volX + 10, yLine);
   display.setTextSize(1);
   display.setTextColor(SSD1306_WHITE);
   display.print(volume);
 
-  display.setCursor(90, yLine);
-  display.print(bitrate);
-  display.print("kbs");
+  // Wyświetl bitrate TYLKO gdy radio gra (playerwrap != "stop" i != "pause")
+  bool isPlaying = (!playerwrap.isEmpty() && 
+                    playerwrap != "stop" && 
+                    playerwrap != "pause" &&
+                    playerwrap != "stopped" &&
+                    playerwrap != "paused");
 
-  // int bitrateX = 80;
-  // display.fillRect(bitrateX, yLine, SCREEN_WIDTH - bitrateX, 8, SSD1306_WHITE);  // Negatyw
-  // display.setCursor(bitrateX + 2, yLine);
-  // display.setTextColor(SSD1306_BLACK);  // Czarny tekst na białym tle
-  // display.print(" ");
-  // display.print(bitrate);
-  // display.print("kbs ");
-  // display.setTextColor(SSD1306_WHITE);  // Przywróć normalny kolor dla kolejnych operacji
+  if (isPlaying) {
+    display.setCursor(85, yLine);
+    if (bitrate > 0) {
+      display.print(bitrate);
+    }
+    if (!fmt.isEmpty()) {
+      display.print(fmt);
+    }
+  }
 
   display.display();
 }
@@ -513,18 +581,22 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
         String id = obj["id"].as<String>();
         if (id == "nameset") stacja = obj["value"].as<String>();
         if (id == "meta") {
-          String metaStr = obj["value"].as<String>();
-          int sep = metaStr.indexOf(" - ");
-          if (sep > 0) {
-            wykonawca = metaStr.substring(0, sep);
-            utwor = metaStr.substring(sep + 3);
-          } else {
-            wykonawca = "";
-            utwor = metaStr;
-          }
+            String metaStr = obj["value"]. as<String>();
+            int sep = metaStr.indexOf(" - ");
+            
+            if (sep > 0) {
+                // Jest " - ", czyli artysta i utwór
+                wykonawca = metaStr.substring(0, sep);
+                utwor = metaStr.substring(sep + 3);
+            } else {
+                // Brak " - ", czyli tylko utwór, artystę przesuwamy do utworu
+                wykonawca = "";
+                utwor = metaStr;
+            }
         }
         if (id == "volume") volume = obj["value"].as<int>();
         if (id == "bitrate") bitrate = obj["value"].as<int>();
+        if (id == "fmt") fmt = obj["value"].as<String>();
         if (id == "playerwrap") {
           playerwrap = obj["value"].as<String>();
           Serial.print("DEBUG: playerwrap = '");  // ← DODAJ
@@ -767,10 +839,14 @@ void loop() {
 
     if (curUp == LOW) {
       sendCommand("volp=1");
+      volumeChanging = true;
+      volumeChangeTime = millis();
       anyButtonPressed = true;
     }
     if (curDown == LOW) {
       sendCommand("volm=1");
+      volumeChanging = true;
+      volumeChangeTime = millis();
       anyButtonPressed = true;
     }
 
