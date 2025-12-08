@@ -1,6 +1,7 @@
 #include <WiFi.h>
 #include <WebSocketsClient.h>
 #include <Adafruit_SSD1306.h>
+#include <Adafruit_NeoPixel.h>
 #include <ArduinoJson.h>
 #include <ArduinoOTA.h>
 #include <esp_task_wdt.h>
@@ -8,35 +9,36 @@
 
 //==================================================================================================
 // Wersja firmware
-#define FIRMWARE_VERSION "0.0.1"       // wersja oprogramowania
+#define FIRMWARE_VERSION "0.0.1"         // wersja oprogramowania
 // sieć
-#define WIFI_SSID "pimowo"             // sieć 
-#define WIFI_PASS "ckH59LRZQzCDQFiUgj" // hasło sieci
-#define STATIC_IP "192.168.1.111"      // IP
-#define GATEWAY_IP "192.168.1.1"       // brama
-#define SUBNET_MASK "255.255.255.0"    // maska
-#define DNS1_IP "192.168.1.1"          // DNS 1
-#define DNS2_IP "8.8.8.8"              // DNS 2
+#define WIFI_SSID "pimowo"               // sieć 
+#define WIFI_PASS "ckH59LRZQzCDQFiUgj"   // hasło sieci
+#define STATIC_IP "192.168.1.111"        // IP
+#define GATEWAY_IP "192.168.1.1"         // brama
+#define SUBNET_MASK "255.255.255.0"      // maska
+#define DNS1_IP "192.168.1.1"            // DNS 1
+#define DNS2_IP "8.8.8.8"                // DNS 2
 // OTA
-#define OTAhostname "yoRadio_pilot"    // nazwa dla OTA
-#define OTApassword "12345987"         // hasło dla OTA
+#define OTAhostname "yoRadio_pilot"      // nazwa dla OTA
+#define OTApassword "12345987"           // hasło dla OTA
 // yoRadio
-#define IP_YORADIO "192.168.1.101"     // IP yoRadio
+#define IP_YORADIO "192.168.1.101"       // IP yoRadio
 // uśpienie
-#define DEEP_SLEEP_TIMEOUT_SEC 60      // sekundy bezczynności przed deep sleep
+#define DEEP_SLEEP_TIMEOUT_SEC 60        // sekundy bezczynności przed deep sleep (podczas odtwarzania)
+#define DEEP_SLEEP_TIMEOUT_STOPPED_SEC 5 // sekundy bezczynności przed deep sleep (gdy zatrzymany)
 // klawiattura
-#define BTN_UP     7                   // pin GÓRA
-#define BTN_RIGHT  4                   // pin PRAWO
-#define BTN_CENTER 5                   // pin OK
-#define BTN_LEFT   6                   // pin LEWO 
-#define BTN_DOWN   3                   // pin DÓŁ
+#define BTN_UP     7                     // pin GÓRA
+#define BTN_RIGHT  4                     // pin PRAWO
+#define BTN_CENTER 5                     // pin OK
+#define BTN_LEFT   6                     // pin LEWO 
+#define BTN_DOWN   3                     // pin DÓŁ
 // wyświetlacz
-#define OLED_BRIGHTNESS 10             // 0-15 (wartość * 16 daje zakres 0-240 dla kontrastu SSD1306)
-#define DISPLAY_REFRESH_RATE_MS 50     // odświeżanie ekranu (100ms = 10 FPS)
+#define OLED_BRIGHTNESS 10               // 0-15 (wartość * 16 daje zakres 0-240 dla kontrastu SSD1306)
+#define DISPLAY_REFRESH_RATE_MS 50       // odświeżanie ekranu (100ms = 10 FPS)
 // bateria
-#define BATTERY_LOW_BLINK_MS 500       // interwał mrugania słabej baterii
+#define BATTERY_LOW_BLINK_MS 500         // interwał mrugania słabej baterii
 // watchdog
-#define WDT_TIMEOUT 30                 // timeout watchdog w sekundach
+#define WDT_TIMEOUT 30                   // timeout watchdog w sekundach
 //==================================================================================================
 
 #define SCREEN_WIDTH 128
@@ -45,6 +47,10 @@
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 WebSocketsClient webSocket;
+
+#define LED_PIN 48       // GPIO 48
+#define NUM_LEDS 1       // Ile LED-ów?  (1 jeśli jeden chipik)
+Adafruit_NeoPixel strip(NUM_LEDS, LED_PIN, NEO_GRB + NEO_KHZ800);
 
 int batteryPercent = 100;
 String meta = "";
@@ -439,7 +445,7 @@ void updateDisplay() {
       display.drawFastHLine(x, yLine + (8 - barHeights[i]), barWidth, SSD1306_WHITE);
   }
 
-  int batX = 23;
+  int batX = 26;
   int batWidth = 20;
   int batHeight = 8;
   
@@ -456,7 +462,7 @@ void updateDisplay() {
     if (fillWidth > 0) display.fillRect(batX + 1, yLine + 1, fillWidth, batHeight - 2, SSD1306_WHITE);
   }
 
-  int volX = 52;
+  int volX = 57;
   display.drawBitmap(volX, yLine, speakerIcon, 8, 8, SSD1306_WHITE);
   display.setCursor(volX + 10, yLine);
   display.setTextSize(1);
@@ -519,7 +525,12 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
         }
         if (id == "volume") volume = obj["value"].as<int>();
         if (id == "bitrate") bitrate = obj["value"].as<int>();
-        if (id == "playerwrap") playerwrap = obj["value"].as<String>();
+        if (id == "playerwrap") {
+          playerwrap = obj["value"].as<String>();
+          Serial.print("DEBUG: playerwrap = '");  // ← DODAJ
+          Serial.print(playerwrap);              // ← DODAJ
+          Serial.println("'");
+        }
         if (id == "rssi") rssi = obj["value"].as<int>();
       }
     }
@@ -608,6 +619,18 @@ void setup() {
   pinMode(BTN_CENTER, INPUT_PULLUP);
   pinMode(BTN_LEFT, INPUT_PULLUP);
   pinMode(BTN_DOWN, INPUT_PULLUP);
+
+  // === INICJALIZUJ I WYŁĄCZ WS2812 ===
+  // strip.begin();
+  // strip. show();          // Włącz komunikację
+  // strip.setBrightness(0); // Ustaw jasność na 0 (wyłączone)
+  // strip.clear();          // Wyczyść wszystkie LED
+  // strip.show();           // Wyślij do LED
+
+  // === WYŁĄCZ WS2812 LED ===
+  strip.begin();
+  strip.clear();
+  strip.show();
 
   if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
     Serial.println(F("SSD1306 failed"));
@@ -778,7 +801,24 @@ void loop() {
 
   // Sprawdź bezczynność i przejdź w deep sleep
   // Nota: unsigned arithmetic poprawnie obsługuje przepełnienie millis()
-  if (millis() - lastActivityTime > (DEEP_SLEEP_TIMEOUT_SEC * 1000)) {
+  unsigned long inactivityTime = millis() - lastActivityTime;
+  
+  // Sprawdź status playera i wybierz odpowiedni timeout
+  // Jeśli playerwrap nie został jeszcze zainicjowany (pusty), traktuj jako playing
+  // bool playerStopped = (!playerwrap.isEmpty() && (playerwrap == "stop" || playerwrap == "pause"));
+  bool playerStopped = (! playerwrap.isEmpty() && 
+                       (playerwrap == "stop" || 
+                       playerwrap == "pause" ||
+                       playerwrap == "stopped" ||
+                       playerwrap == "paused"));
+  unsigned long timeoutMs = playerStopped ? (DEEP_SLEEP_TIMEOUT_STOPPED_SEC * 1000) : (DEEP_SLEEP_TIMEOUT_SEC * 1000);
+  
+  if (inactivityTime > timeoutMs) {
+    if (playerStopped) {
+      Serial.println("Deep sleep triggered: Player stopped/paused timeout");
+    } else {
+      Serial.println("Deep sleep triggered: General inactivity timeout");
+    }
     enterDeepSleep();
     // Kod poniżej nie zostanie wykonany
   }
