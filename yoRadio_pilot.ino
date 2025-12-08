@@ -345,11 +345,11 @@ void updateDisplay() {
     int startX = (SCREEN_WIDTH - totalWidth) / 2;
     int centerY = 28;  // Vertically centered
     
-    // Draw scaled speaker icon
+    // Draw scaled speaker icon (MSB-first bit order)
     for (int sy = 0; sy < 8; sy++) {
       uint8_t line = pgm_read_byte_near(speakerIcon + sy);
       for (int sx = 0; sx < 8; sx++) {
-        if (line & (1 << (7 - sx))) {
+        if (line & (1 << (7 - sx))) {  // Read bits MSB to LSB
           display.fillRect(startX + sx * volScale, centerY + sy * volScale, volScale, volScale, SSD1306_WHITE);
         }
       }
@@ -521,13 +521,13 @@ void updateDisplay() {
   display.print(volume);
 
   display.setCursor(90, yLine);
-  if (bitrate > 0 && !fmt.isEmpty()) {
+  if (bitrate > 0) {
     display.print(bitrate);
-    display.print(" ");
-    display.print(fmt);
-  } else if (bitrate > 0) {
-    display.print(bitrate);
-  } else if (!fmt.isEmpty()) {
+    if (!fmt.isEmpty()) {
+      display.print(" ");
+    }
+  }
+  if (!fmt.isEmpty()) {
     display.print(fmt);
   }
 
