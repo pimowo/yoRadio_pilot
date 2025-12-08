@@ -774,13 +774,19 @@ void loop() {
       wifiState = WIFI_ERROR;
     }
   } else if (wifiState == WIFI_WS_CONNECTING) {
+    // Check if WiFi is still connected
+    if (WiFi.status() != WL_CONNECTED) {
+      Serial.println("WiFi disconnected during WebSocket connection!");
+      wifiState = WIFI_CONNECTING;
+      wifiTimer = millis();
+    }
     // Wait for WebSocket to connect
-    if (wsConnected) {
+    else if (wsConnected) {
       Serial.println("WebSocket connected, transitioning to WIFI_OK");
       wifiState = WIFI_OK;
     }
     // Check for WebSocket connection timeout
-    if ((millis() - lastWebSocketMessage) > WS_TIMEOUT_MS) {
+    else if ((millis() - lastWebSocketMessage) > WS_TIMEOUT_MS) {
       Serial.println("WebSocket connection timeout!");
       wifiState = WIFI_ERROR;
     }
@@ -793,7 +799,13 @@ void loop() {
   } else if (wifiState == WIFI_ERROR) {
     if (WiFi.status() == WL_CONNECTED) {
       Serial.println("WiFi reconnected!");
-      wifiState = WIFI_OK;
+      wifiState = WIFI_WS_CONNECTING;
+      Serial.print("Reconnecting to WebSocket at ");
+      Serial.print(IP_YORADIO);
+      Serial.println(":80/ws");
+      lastWebSocketMessage = millis();  // Reset timer when starting WebSocket connection
+      webSocket.begin(IP_YORADIO, 80, "/ws");
+      webSocket.onEvent(webSocketEvent);
     }
   }
 
