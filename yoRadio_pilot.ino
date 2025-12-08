@@ -10,6 +10,7 @@
 //==================================================================================================
 // firmware
 #define FIRMWARE_VERSION "0.2"           // wersja oprogramowania
+#define DEBUG 0                          // 1 = logi włączone, 0 = logi wyłączone
 // sieć
 #define WIFI_SSID "pimowo"               // sieć 
 #define WIFI_PASS "ckH59LRZQzCDQFiUgj"   // hasło sieci
@@ -555,7 +556,9 @@ void updateDisplay() {
 
 void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
   if (type == WStype_CONNECTED) {
-    Serial.println("WebSocket connected!");
+    #if DEBUG
+      Serial.println("WebSocket connected!");
+    #endif
     wsConnected = true;
     lastWebSocketMessage = millis();
     webSocket.sendTXT("getindex=1");
@@ -564,14 +567,18 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
 
   if (type == WStype_TEXT) {
     lastWebSocketMessage = millis();
-    Serial.print("WebSocket message: ");
-    Serial.println((char*)payload);
+    #if DEBUG
+      Serial.print("WebSocket message: ");
+      Serial.println((char*)payload);
+    #endif
     
     StaticJsonDocument<256> doc;
     DeserializationError error = deserializeJson(doc, payload, length);
     if (error) {
-      Serial.print("JSON parse error: ");
-      Serial.println(error.c_str());
+      #if DEBUG
+        Serial.print("JSON parse error: ");
+        Serial.println(error.c_str());
+      #endif
       return;
     }
     
@@ -599,9 +606,11 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
         if (id == "fmt") fmt = obj["value"].as<String>();
         if (id == "playerwrap") {
           playerwrap = obj["value"].as<String>();
-          Serial.print("DEBUG: playerwrap = '");  // ← DODAJ
-          Serial.print(playerwrap);              // ← DODAJ
-          Serial.println("'");
+          #if DEBUG
+            Serial.print("DEBUG: playerwrap = '");
+            Serial.print(playerwrap);
+            Serial.println("'");
+          #endif
         }
         if (id == "rssi") rssi = obj["value"].as<int>();
       }
@@ -611,7 +620,9 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
   }
   
   if (type == WStype_DISCONNECTED) {
-    Serial.println("WebSocket disconnected!");
+    #if DEBUG
+      Serial.println("WebSocket disconnected!");
+    #endif
     wsConnected = false;
   }
 }
@@ -619,13 +630,17 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
 void sendCommand(const char* cmd) {
   if (webSocket.isConnected()) {
     webSocket.sendTXT(cmd);
-    Serial.print("Sent: ");
-    Serial.println(cmd);
+    #if DEBUG
+      Serial.print("Sent: ");
+      Serial.println(cmd);
+    #endif
   }
 }
 
 void enterDeepSleep() {
-  Serial.println("Preparing deep sleep...");
+  #if DEBUG
+    Serial.println("Preparing deep sleep...");
+  #endif
   display.clearDisplay();
   display.display();
   display.ssd1306_command(0xAE);  // Wyłącz OLED
@@ -639,7 +654,9 @@ void enterDeepSleep() {
 
   // Upewnij się, że przycisk CENTER (GPIO5) jest INPUT_PULLUP - już masz w setup()
   // Używamy EXT0: pojedynczy pin wybudzający (pewniejszy)
-  Serial.println("Configuring EXT0 wakeup on GPIO5 (LOW)...");
+  #if DEBUG
+    Serial.println("Configuring EXT0 wakeup on GPIO5 (LOW)...");
+  #endif
   esp_sleep_enable_ext0_wakeup(GPIO_NUM_5, 0); // 0 = LOW wakes up (przycisk zwiera do GND)
 
   // RTC_PERIPH MUSI BYĆ WŁĄCZONY, żeby RTC IO (EXT0/EXT1) działało.
@@ -649,8 +666,10 @@ void enterDeepSleep() {
   esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_SLOW_MEM, ESP_PD_OPTION_OFF);
   esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_FAST_MEM, ESP_PD_OPTION_OFF);
 
-  Serial.println("Entering deep sleep in 50 ms...");
-  Serial.flush();
+  #if DEBUG
+    Serial.println("Entering deep sleep in 50 ms...");
+    Serial.flush();
+  #endif
   delay(50);
 
   esp_deep_sleep_start();
@@ -664,27 +683,31 @@ void oledSetContrast(uint8_t c) {
 void setup() {
   Serial.begin(115200);
 
-  // --- DEBUG: pokaz przyczynę wake ---
-  esp_sleep_wakeup_cause_t wakeupReason = esp_sleep_get_wakeup_cause();
-  switch (wakeupReason) {
-    case ESP_SLEEP_WAKEUP_EXT0: Serial.println("Wakeup reason: EXT0 (single pin)"); break;
-    case ESP_SLEEP_WAKEUP_EXT1: Serial.println("Wakeup reason: EXT1 (mask)"); break;
-    case ESP_SLEEP_WAKEUP_TIMER: Serial.println("Wakeup reason: TIMER"); break;
-    case ESP_SLEEP_WAKEUP_TOUCHPAD: Serial.println("Wakeup reason: TOUCHPAD"); break;
-    case ESP_SLEEP_WAKEUP_ULP: Serial.println("Wakeup reason: ULP"); break;
-    case ESP_SLEEP_WAKEUP_UNDEFINED: Serial.println("Wakeup reason: UNDEFINED / normal boot"); break;
-    default: Serial.printf("Wakeup reason: %d\n", wakeupReason); break;
-  }
+  #if DEBUG
+    // --- DEBUG: pokaz przyczynę wake ---
+    esp_sleep_wakeup_cause_t wakeupReason = esp_sleep_get_wakeup_cause();
+    switch (wakeupReason) {
+      case ESP_SLEEP_WAKEUP_EXT0: Serial.println("Wakeup reason: EXT0 (single pin)"); break;
+      case ESP_SLEEP_WAKEUP_EXT1: Serial.println("Wakeup reason: EXT1 (mask)"); break;
+      case ESP_SLEEP_WAKEUP_TIMER: Serial.println("Wakeup reason: TIMER"); break;
+      case ESP_SLEEP_WAKEUP_TOUCHPAD: Serial.println("Wakeup reason: TOUCHPAD"); break;
+      case ESP_SLEEP_WAKEUP_ULP: Serial.println("Wakeup reason: ULP"); break;
+      case ESP_SLEEP_WAKEUP_UNDEFINED: Serial.println("Wakeup reason: UNDEFINED / normal boot"); break;
+      default: Serial.printf("Wakeup reason: %d\n", wakeupReason); break;
+    }
 
-  delay(100);
-  Serial.print("\n\nStarting YoRadio OLED Display v");
-  Serial.println(FIRMWARE_VERSION);
+    delay(100);
+    Serial.print("\n\nStarting YoRadio OLED Display v");
+    Serial.println(FIRMWARE_VERSION);
+  #endif
 
   // Inicjalizacja watchdog timer
   // true = panic on timeout (reboot ESP32 jeśli watchdog nie zostanie zresetowany)
   esp_task_wdt_init(WDT_TIMEOUT, true);
   esp_task_wdt_add(NULL);  // Dodaj current task
-  Serial.println("Watchdog timer initialized");
+  #if DEBUG
+    Serial.println("Watchdog timer initialized");
+  #endif
 
   pinMode(BTN_UP, INPUT_PULLUP);
   pinMode(BTN_RIGHT, INPUT_PULLUP);
@@ -713,8 +736,10 @@ void setup() {
   uint8_t brightness = constrain(OLED_BRIGHTNESS, 0, 15);
   //display.setContrast(brightness * 16);
   oledSetContrast(brightness * 16);
-  Serial.print("OLED brightness set to: ");
-  Serial.println(brightness);
+  #if DEBUG
+    Serial.print("OLED brightness set to: ");
+    Serial.println(brightness);
+  #endif
 
   display.clearDisplay();
   display.display();
@@ -736,10 +761,12 @@ void setup() {
   WiFi.config(staticIP, gateway, subnet, dns1, dns2);
 
   // ===== WIFI BEGIN =====
-  Serial.print("Connecting to WiFi: ");
-  Serial.println(WIFI_SSID);
-  Serial.print("Using static IP: ");
-  Serial.println(STATIC_IP);
+  #if DEBUG
+    Serial.print("Connecting to WiFi: ");
+    Serial.println(WIFI_SSID);
+    Serial.print("Using static IP: ");
+    Serial.println(STATIC_IP);
+  #endif
   
   WiFi.begin(WIFI_SSID, WIFI_PASS);
   wifiTimer = millis();
@@ -749,36 +776,46 @@ void setup() {
   ArduinoOTA.setHostname(OTAhostname);
   ArduinoOTA.setPassword(OTApassword);
   ArduinoOTA.onStart([]() {
-    String type;
-    if (ArduinoOTA.getCommand() == U_FLASH) {
-      type = "sketch";
-    } else {
-      type = "filesystem";
-    }
-    Serial.println("Start updating " + type);
+    #if DEBUG
+      String type;
+      if (ArduinoOTA.getCommand() == U_FLASH) {
+        type = "sketch";
+      } else {
+        type = "filesystem";
+      }
+      Serial.println("Start updating " + type);
+    #endif
   });
   ArduinoOTA.onEnd([]() {
-    Serial.println("\nEnd");
+    #if DEBUG
+      Serial.println("\nEnd");
+    #endif
   });
   ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
-    Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
+    #if DEBUG
+      Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
+    #endif
   });
   ArduinoOTA.onError([](ota_error_t error) {
-    Serial.printf("Error[%u]: ", error);
-    if (error == OTA_AUTH_ERROR) {
-      Serial.println("Auth Failed");
-    } else if (error == OTA_BEGIN_ERROR) {
-      Serial.println("Begin Failed");
-    } else if (error == OTA_CONNECT_ERROR) {
-      Serial.println("Connect Failed");
-    } else if (error == OTA_RECEIVE_ERROR) {
-      Serial.println("Receive Failed");
-    } else if (error == OTA_END_ERROR) {
-      Serial.println("End Failed");
-    }
+    #if DEBUG
+      Serial.printf("Error[%u]: ", error);
+      if (error == OTA_AUTH_ERROR) {
+        Serial.println("Auth Failed");
+      } else if (error == OTA_BEGIN_ERROR) {
+        Serial.println("Begin Failed");
+      } else if (error == OTA_CONNECT_ERROR) {
+        Serial.println("Connect Failed");
+      } else if (error == OTA_RECEIVE_ERROR) {
+        Serial.println("Receive Failed");
+      } else if (error == OTA_END_ERROR) {
+        Serial.println("End Failed");
+      }
+    #endif
   });
   ArduinoOTA.begin();
-  Serial.println("OTA ready");
+  #if DEBUG
+    Serial.println("OTA ready");
+  #endif
   
   // Inicjalizacja timerów
   lastActivityTime = millis();
@@ -797,29 +834,39 @@ void loop() {
 
   if (wifiState == WIFI_CONNECTING) {
     if (WiFi.status() == WL_CONNECTED) {
-      Serial.println("WiFi connected!");
-      Serial.print("IP: ");
-      Serial.println(WiFi.localIP());
+      #if DEBUG
+        Serial.println("WiFi connected!");
+        Serial.print("IP: ");
+        Serial.println(WiFi.localIP());
+      #endif
       wifiState = WIFI_OK;
-      Serial.print("Connecting to WebSocket at ");
-      Serial.print(IP_YORADIO);
-      Serial.println(":80/ws");
+      #if DEBUG
+        Serial.print("Connecting to WebSocket at ");
+        Serial.print(IP_YORADIO);
+        Serial.println(":80/ws");
+      #endif
       webSocket.begin(IP_YORADIO, 80, "/ws");
       webSocket.onEvent(webSocketEvent);
     }
     if (millis() - wifiTimer > wifiTimeout) {
-      Serial.println("WiFi connection timeout!");
+      #if DEBUG
+        Serial.println("WiFi connection timeout!");
+      #endif
       wifiState = WIFI_ERROR;
     }
   } else if (wifiState == WIFI_OK) {
     if (WiFi.status() != WL_CONNECTED) {
-      Serial.println("WiFi disconnected!");
+      #if DEBUG
+        Serial.println("WiFi disconnected!");
+      #endif
       wifiState = WIFI_CONNECTING;
       wifiTimer = millis();
     }
   } else if (wifiState == WIFI_ERROR) {
     if (WiFi.status() == WL_CONNECTED) {
-      Serial.println("WiFi reconnected!");
+      #if DEBUG
+        Serial.println("WiFi reconnected!");
+      #endif
       wifiState = WIFI_OK;
     }
   }
@@ -890,11 +937,13 @@ void loop() {
   unsigned long timeoutMs = playerStopped ? (DEEP_SLEEP_TIMEOUT_STOPPED_SEC * 1000) : (DEEP_SLEEP_TIMEOUT_SEC * 1000);
   
   if (inactivityTime > timeoutMs) {
-    if (playerStopped) {
-      Serial.println("Deep sleep triggered: Player stopped/paused timeout");
-    } else {
-      Serial.println("Deep sleep triggered: General inactivity timeout");
-    }
+    #if DEBUG
+      if (playerStopped) {
+        Serial.println("Deep sleep triggered: Player stopped/paused timeout");
+      } else {
+        Serial.println("Deep sleep triggered: General inactivity timeout");
+      }
+    #endif
     enterDeepSleep();
     // Kod poniżej nie zostanie wykonany
   }
