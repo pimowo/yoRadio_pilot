@@ -424,7 +424,8 @@ void updateDisplay() {
     }
   } else {
     // Gdy brak artysty: Linia 1 = Utwór, Linia 2 = Pusta
-    if (utwor != prev_utwor) {
+    // Obsłuż zarówno zmianę utworu jak i przejście z trybu z artystą na tryb bez artysty
+    if (utwor != prev_utwor || (wykonawca != prev_wykonawca && prev_wykonawca.length() > 0)) {
       prev_utwor = utwor;
       scrollStates[1].pos = 0;
       scrollStates[1].t_start = millis();
@@ -433,14 +434,16 @@ void updateDisplay() {
       prepareScroll(1, utwor, scrollConfs[1].fontsize);
     }
 
-    // Wyczyść linię 2 gdy brak artysty (tylko gdy wykonawca się zmienił lub jest pusty)
-    if (wykonawca != prev_wykonawca || scrollStates[2].text != "") {
+    // Wyczyść linię 2 gdy brak artysty (tylko przy przejściu z trybu z artystą)
+    if (wykonawca != prev_wykonawca) {
+      if (prev_wykonawca.length() > 0) {
+        scrollStates[2].pos = 0;
+        scrollStates[2].t_start = millis();
+        scrollStates[2].t_last = millis();
+        scrollStates[2].isMoving = false;
+        prepareScroll(2, "", scrollConfs[2].fontsize);
+      }
       prev_wykonawca = wykonawca;
-      scrollStates[2].pos = 0;
-      scrollStates[2].t_start = millis();
-      scrollStates[2].t_last = millis();
-      scrollStates[2].isMoving = false;
-      prepareScroll(2, "", scrollConfs[2].fontsize);
     }
   }
 
