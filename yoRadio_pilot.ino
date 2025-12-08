@@ -782,7 +782,8 @@ void loop() {
   unsigned long inactivityTime = millis() - lastActivityTime;
   
   // Sprawdź status playera i wybierz odpowiedni timeout
-  bool playerStopped = (playerwrap == "stop" || playerwrap == "pause");
+  // Jeśli playerwrap nie został jeszcze zainicjowany (pusty), traktuj jako playing
+  bool playerStopped = (!playerwrap.isEmpty() && (playerwrap == "stop" || playerwrap == "pause"));
   unsigned long timeoutMs = playerStopped ? (DEEP_SLEEP_TIMEOUT_STOPPED_SEC * 1000) : (DEEP_SLEEP_TIMEOUT_SEC * 1000);
   
   if (inactivityTime > timeoutMs) {
