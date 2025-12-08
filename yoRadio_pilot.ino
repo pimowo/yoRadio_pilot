@@ -2,22 +2,41 @@
 #include <WebSocketsClient.h>
 #include <Adafruit_SSD1306.h>
 #include <ArduinoJson.h>
+#include <ArduinoOTA.h>
+#include <esp_task_wdt.h>
 #include "font5x7.h"
 
 //==================================================================================================
+// Wersja firmware
+#define FIRMWARE_VERSION "0.0.1"       // wersja oprogramowania
 // sieć
 #define WIFI_SSID "pimowo"             // sieć 
 #define WIFI_PASS "ckH59LRZQzCDQFiUgj" // hasło sieci
+#define STATIC_IP "192.168.1.111"      // IP
+#define GATEWAY_IP "192.168.1.1"       // brama
+#define SUBNET_MASK "255.255.255.0"    // maska
+#define DNS1_IP "192.168.1.1"          // DNS 1
+#define DNS2_IP "8.8.8.8"              // DNS 2
+// OTA
+#define OTAhostname "yoRadio_pilot"
+#define OTApassword "12345987"
 // yoRadio
 #define IP_YORADIO "192.168.1.101"     // IP yoRadio
 // uśpienie
-#define DEEP_SLEEP_TIMEOUT_SEC 20      // sekundy bezczynności przed deep sleep
+#define DEEP_SLEEP_TIMEOUT_SEC 15      // sekundy bezczynności przed deep sleep
 // klawiattura
-#define BTN_UP     7 // pin GÓRA
-#define BTN_RIGHT  4 // pin PRAWO
-#define BTN_CENTER 5 // pin OK
-#define BTN_LEFT   6 // pin LEWO 
-#define BTN_DOWN   3 // pin DÓŁ
+#define BTN_UP     7                   // pin GÓRA
+#define BTN_RIGHT  4                   // pin PRAWO
+#define BTN_CENTER 5                   // pin OK
+#define BTN_LEFT   6                   // pin LEWO 
+#define BTN_DOWN   3                   // pin DÓŁ
+// wyświetlacz
+#define OLED_BRIGHTNESS 10             // 0-15 (wartość * 16 daje zakres 0-240 dla kontrastu SSD1306)
+#define DISPLAY_REFRESH_RATE_MS 50     // odświeżanie ekranu (100ms = 10 FPS)
+// bateria
+#define BATTERY_LOW_BLINK_MS 500       // interwał mrugania słabej baterii
+// watchdog
+#define WDT_TIMEOUT 30                 // timeout watchdog w sekundach
 //==================================================================================================
 
 #define SCREEN_WIDTH 128
@@ -43,6 +62,7 @@ const unsigned long WS_TIMEOUT_MS = 10000;  // 10 sekund timeout
 
 unsigned long lastButtonCheck = 0;
 unsigned long lastActivityTime = 0;
+unsigned long lastDisplayUpdate = 0;
 bool lastCenterState = HIGH;
 bool lastLeftState = HIGH;
 bool lastRightState = HIGH;
@@ -174,7 +194,7 @@ void drawString5x7(int16_t x, int16_t y, const String &s, uint8_t scale = 1, uin
 int getPixelWidth5x7(const String &s, uint8_t scale = 1) {
   int glyphs = 0;
   const char *str = s.c_str();
-  for (size_t i = 0; i < s. length();) {
+  for (size_t i = 0; i < s.length();) {
     uint8_t c = (uint8_t)str[i];
     if (c < 128) { glyphs++; i++; }
     else if ((c & 0xE0) == 0xC0 && i + 1 < s.length()) { glyphs++; i += 2; }
@@ -252,7 +272,7 @@ void updateScroll(int line) {
     
     int resetPos = -(state.singleTextWidth + state.suffixWidth);
     if (state.pos <= resetPos) {
-      state. pos = 0;
+      state.pos = 0;
       state.isMoving = false;
       state.t_start = now;
       
@@ -282,6 +302,12 @@ void drawScrollLine(int line, int scale) {
 }
 
 void updateDisplay() {
+  // Throttle display updates to DISPLAY_REFRESH_RATE_MS
+  if (millis() - lastDisplayUpdate < DISPLAY_REFRESH_RATE_MS) {
+    return;
+  }
+  lastDisplayUpdate = millis();
+  
   display.clearDisplay();
 
   if (wifiState == WIFI_CONNECTING) {
@@ -311,6 +337,13 @@ void updateDisplay() {
     int ssidY = 35;
     
     drawString5x7(ssidX, ssidY, ssidText, 1, SSD1306_WHITE);
+    
+    // Wyświetl wersję firmware na dole
+    String versionText = "v" + String(FIRMWARE_VERSION);
+    int versionWidth = getPixelWidth5x7(versionText, 1);
+    int versionX = (SCREEN_WIDTH - versionWidth) / 2;
+    int versionY = 52;
+    drawString5x7(versionX, versionY, versionText, 1, SSD1306_WHITE);
     
     display.display();
     return;
@@ -409,10 +442,19 @@ void updateDisplay() {
   int batX = 23;
   int batWidth = 20;
   int batHeight = 8;
-  display.drawRect(batX, yLine, batWidth, batHeight, SSD1306_WHITE);
-  display.fillRect(batX + batWidth, yLine + 2, 2, batHeight - 4, SSD1306_WHITE);
-  int fillWidth = (batteryPercent * (batWidth - 2)) / 100;
-  if (fillWidth > 0) display.fillRect(batX + 1, yLine + 1, fillWidth, batHeight - 2, SSD1306_WHITE);
+  
+  // Animacja mrugania dla słabej baterii (< 20%)
+  bool showBattery = true;
+  if (batteryPercent < 20) {
+    showBattery = ((millis() / BATTERY_LOW_BLINK_MS) % 2) == 0;
+  }
+  
+  if (showBattery) {
+    display.drawRect(batX, yLine, batWidth, batHeight, SSD1306_WHITE);
+    display.fillRect(batX + batWidth, yLine + 2, 2, batHeight - 4, SSD1306_WHITE);
+    int fillWidth = (batteryPercent * (batWidth - 2)) / 100;
+    if (fillWidth > 0) display.fillRect(batX + 1, yLine + 1, fillWidth, batHeight - 2, SSD1306_WHITE);
+  }
 
   int volX = 52;
   display.drawBitmap(volX, yLine, speakerIcon, 8, 8, SSD1306_WHITE);
@@ -421,9 +463,18 @@ void updateDisplay() {
   display.setTextColor(SSD1306_WHITE);
   display.print(volume);
 
-  display.setCursor(90, yLine);
+  // display.setCursor(90, yLine);
+  // display.print(bitrate);
+  // display.print("kbs");
+
+  int bitrateX = 80;
+  display.fillRect(bitrateX, yLine, SCREEN_WIDTH - bitrateX, 8, SSD1306_WHITE);  // Negatyw
+  display.setCursor(bitrateX + 2, yLine);
+  display.setTextColor(SSD1306_BLACK);  // Czarny tekst na białym tle
+  display.print(" ");
   display.print(bitrate);
-  display.print("kbs");
+  display.print("kbs ");
+  display.setTextColor(SSD1306_WHITE);  // Przywróć normalny kolor dla kolejnych operacji
 
   display.display();
 }
@@ -451,7 +502,7 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
     }
     
     if (doc.containsKey("payload")) {
-      JsonArray arr = doc["payload"]. as<JsonArray>();
+      JsonArray arr = doc["payload"].as<JsonArray>();
       for (JsonObject obj : arr) {
         String id = obj["id"].as<String>();
         if (id == "nameset") stacja = obj["value"].as<String>();
@@ -491,34 +542,66 @@ void sendCommand(const char* cmd) {
 }
 
 void enterDeepSleep() {
-  Serial.println("Clearing display and powering down...");
+  Serial.println("Preparing deep sleep...");
   display.clearDisplay();
   display.display();
   display.ssd1306_command(0xAE);  // Wyłącz OLED
-  
-  Serial.println("Powering down WiFi...");
+  delay(100);
+
+  // Porządne zamknięcie usług sieciowych
   webSocket.disconnect();
-  WiFi.disconnect(true);  // wyłącz WiFi radio
+  WiFi.disconnect(true);
   WiFi.mode(WIFI_OFF);
-  
-  Serial.println("Entering deep sleep...");
-  
-  // GPIO5 (BTN_CENTER) = pin do wybudzenia
-  // 0 = LOW trigger (przycisk zwiera GND, więc LOW = naciśnięty)
-  esp_sleep_enable_ext0_wakeup(GPIO_NUM_5, 0);
-  
+  delay(100);
+
+  // Upewnij się, że przycisk CENTER (GPIO5) jest INPUT_PULLUP - już masz w setup()
+  // Używamy EXT0: pojedynczy pin wybudzający (pewniejszy)
+  Serial.println("Configuring EXT0 wakeup on GPIO5 (LOW)...");
+  esp_sleep_enable_ext0_wakeup(GPIO_NUM_5, 0); // 0 = LOW wakes up (przycisk zwiera do GND)
+
+  // RTC_PERIPH MUSI BYĆ WŁĄCZONY, żeby RTC IO (EXT0/EXT1) działało.
+  esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON);
+
+  // Możesz wyłączyć RTC slow/fast memory, jeśli nie używasz ich do przechowywania danych
+  esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_SLOW_MEM, ESP_PD_OPTION_OFF);
+  esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_FAST_MEM, ESP_PD_OPTION_OFF);
+
+  Serial.println("Entering deep sleep in 50 ms...");
   Serial.flush();
-  
-  // Przejdź w deep sleep
+  delay(50);
+
   esp_deep_sleep_start();
-  // Kod poniżej NIE ZOSTANIE wykonany!
-  // ESP32 się wybudzi i zrobi pełny boot
+}
+
+void oledSetContrast(uint8_t c) {
+  display.ssd1306_command(SSD1306_SETCONTRAST);
+  display.ssd1306_command(c);
 }
 
 void setup() {
   Serial.begin(115200);
+
+  // --- DEBUG: pokaz przyczynę wake ---
+  esp_sleep_wakeup_cause_t wakeupReason = esp_sleep_get_wakeup_cause();
+  switch (wakeupReason) {
+    case ESP_SLEEP_WAKEUP_EXT0: Serial.println("Wakeup reason: EXT0 (single pin)"); break;
+    case ESP_SLEEP_WAKEUP_EXT1: Serial.println("Wakeup reason: EXT1 (mask)"); break;
+    case ESP_SLEEP_WAKEUP_TIMER: Serial.println("Wakeup reason: TIMER"); break;
+    case ESP_SLEEP_WAKEUP_TOUCHPAD: Serial.println("Wakeup reason: TOUCHPAD"); break;
+    case ESP_SLEEP_WAKEUP_ULP: Serial.println("Wakeup reason: ULP"); break;
+    case ESP_SLEEP_WAKEUP_UNDEFINED: Serial.println("Wakeup reason: UNDEFINED / normal boot"); break;
+    default: Serial.printf("Wakeup reason: %d\n", wakeupReason); break;
+  }
+
   delay(100);
-  Serial.println("\n\nStarting YoRadio OLED Display.. .");
+  Serial.print("\n\nStarting YoRadio OLED Display v");
+  Serial.println(FIRMWARE_VERSION);
+
+  // Inicjalizacja watchdog timer
+  // true = panic on timeout (reboot ESP32 jeśli watchdog nie zostanie zresetowany)
+  esp_task_wdt_init(WDT_TIMEOUT, true);
+  esp_task_wdt_add(NULL);  // Dodaj current task
+  Serial.println("Watchdog timer initialized");
 
   pinMode(BTN_UP, INPUT_PULLUP);
   pinMode(BTN_RIGHT, INPUT_PULLUP);
@@ -531,21 +614,84 @@ void setup() {
     for(;;);
   }
 
+  // Ustaw jasność OLED (0-15 mapuje na 0-255)
+  uint8_t brightness = constrain(OLED_BRIGHTNESS, 0, 15);
+  //display.setContrast(brightness * 16);
+  oledSetContrast(brightness * 16);
+  Serial.print("OLED brightness set to: ");
+  Serial.println(brightness);
+
   display.clearDisplay();
   display.display();
 
+  // ===== STATYCZNE IP =====
+  IPAddress staticIP;
+  IPAddress gateway;
+  IPAddress subnet;
+  IPAddress dns1;
+  IPAddress dns2;
+
+  staticIP. fromString(STATIC_IP);
+  gateway.fromString(GATEWAY_IP);
+  subnet.fromString(SUBNET_MASK);
+  dns1.fromString(DNS1_IP);
+  dns2.fromString(DNS2_IP);
+  
+  // ===== WIFI BEGIN =====
   Serial.print("Connecting to WiFi: ");
   Serial.println(WIFI_SSID);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
   wifiTimer = millis();
   wifiState = WIFI_CONNECTING;
   
+  // Inicjalizacja ArduinoOTA
+  ArduinoOTA.setHostname(OTAhostname);
+  ArduinoOTA.setPassword(OTApassword);
+  ArduinoOTA.onStart([]() {
+    String type;
+    if (ArduinoOTA.getCommand() == U_FLASH) {
+      type = "sketch";
+    } else {
+      type = "filesystem";
+    }
+    Serial.println("Start updating " + type);
+  });
+  ArduinoOTA.onEnd([]() {
+    Serial.println("\nEnd");
+  });
+  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+    Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
+  });
+  ArduinoOTA.onError([](ota_error_t error) {
+    Serial.printf("Error[%u]: ", error);
+    if (error == OTA_AUTH_ERROR) {
+      Serial.println("Auth Failed");
+    } else if (error == OTA_BEGIN_ERROR) {
+      Serial.println("Begin Failed");
+    } else if (error == OTA_CONNECT_ERROR) {
+      Serial.println("Connect Failed");
+    } else if (error == OTA_RECEIVE_ERROR) {
+      Serial.println("Receive Failed");
+    } else if (error == OTA_END_ERROR) {
+      Serial.println("End Failed");
+    }
+  });
+  ArduinoOTA.begin();
+  Serial.println("OTA ready");
+  
   // Inicjalizacja timerów
   lastActivityTime = millis();
   lastWebSocketMessage = millis();
+  lastDisplayUpdate = millis();
 }
 
 void loop() {
+  // Reset watchdog co iterację
+  esp_task_wdt_reset();
+  
+  // Obsługa OTA updates
+  ArduinoOTA.handle();
+  
   webSocket.loop();
 
   if (wifiState == WIFI_CONNECTING) {
