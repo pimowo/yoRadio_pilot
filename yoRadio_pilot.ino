@@ -404,7 +404,7 @@ void updateDisplay() {
   bool hasArtist = (wykonawca.length() > 0);
   
   if (hasArtist) {
-    // Gdy jest artysta: Linia 1 = Artysta, Linia 2 = Utwór
+    // Gdy jest artysta: scrollStates[1] (Linia 2 ekranu) = Artysta, scrollStates[2] (Linia 3 ekranu) = Utwór
     if (wykonawca != prev_wykonawca) {
       prev_wykonawca = wykonawca;
       scrollStates[1].pos = 0;
@@ -423,9 +423,10 @@ void updateDisplay() {
       prepareScroll(2, utwor, scrollConfs[2].fontsize);
     }
   } else {
-    // Gdy brak artysty: Linia 1 = Utwór, Linia 2 = Pusta
+    // Gdy brak artysty: scrollStates[1] (Linia 2 ekranu) = Utwór, scrollStates[2] (Linia 3 ekranu) = Pusta
     // Obsłuż zarówno zmianę utworu jak i przejście z trybu z artystą na tryb bez artysty
-    if (utwor != prev_utwor || (wykonawca != prev_wykonawca && prev_wykonawca.length() > 0)) {
+    bool shouldUpdateTrackLine = (utwor != prev_utwor || (wykonawca != prev_wykonawca && prev_wykonawca.length() > 0));
+    if (shouldUpdateTrackLine) {
       prev_utwor = utwor;
       scrollStates[1].pos = 0;
       scrollStates[1].t_start = millis();
