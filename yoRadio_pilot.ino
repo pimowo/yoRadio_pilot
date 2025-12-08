@@ -8,36 +8,36 @@
 
 //==================================================================================================
 // Wersja firmware
-#define FIRMWARE_VERSION "0.0.1"       // wersja oprogramowania
+#define FIRMWARE_VERSION "0.0.1"         // wersja oprogramowania
 // sieć
-#define WIFI_SSID "pimowo"             // sieć 
-#define WIFI_PASS "ckH59LRZQzCDQFiUgj" // hasło sieci
-#define STATIC_IP "192.168.1.111"      // IP
-#define GATEWAY_IP "192.168.1.1"       // brama
-#define SUBNET_MASK "255.255.255.0"    // maska
-#define DNS1_IP "192.168.1.1"          // DNS 1
-#define DNS2_IP "8.8.8.8"              // DNS 2
+#define WIFI_SSID "pimowo"               // sieć 
+#define WIFI_PASS "ckH59LRZQzCDQFiUgj"   // hasło sieci
+#define STATIC_IP "192.168.1.111"        // IP
+#define GATEWAY_IP "192.168.1.1"         // brama
+#define SUBNET_MASK "255.255.255.0"      // maska
+#define DNS1_IP "192.168.1.1"            // DNS 1
+#define DNS2_IP "8.8.8.8"                // DNS 2
 // OTA
-#define OTAhostname "yoRadio_pilot"    // nazwa dla OTA
-#define OTApassword "12345987"         // hasło dla OTA
+#define OTAhostname "yoRadio_pilot"      // nazwa dla OTA
+#define OTApassword "12345987"           // hasło dla OTA
 // yoRadio
-#define IP_YORADIO "192.168.1.101"     // IP yoRadio
+#define IP_YORADIO "192.168.1.101"       // IP yoRadio
 // uśpienie
-#define DEEP_SLEEP_TIMEOUT_SEC 60      // sekundy bezczynności przed deep sleep (podczas odtwarzania)
-#define DEEP_SLEEP_TIMEOUT_STOPPED_SEC 120  // sekundy bezczynności przed deep sleep (gdy playback zatrzymany)
+#define DEEP_SLEEP_TIMEOUT_SEC 60        // sekundy bezczynności przed deep sleep (podczas odtwarzania)
+#define DEEP_SLEEP_TIMEOUT_STOPPED_SEC 5 // sekundy bezczynności przed deep sleep (gdy zatrzymany)
 // klawiattura
-#define BTN_UP     7                   // pin GÓRA
-#define BTN_RIGHT  4                   // pin PRAWO
-#define BTN_CENTER 5                   // pin OK
-#define BTN_LEFT   6                   // pin LEWO 
-#define BTN_DOWN   3                   // pin DÓŁ
+#define BTN_UP     7                     // pin GÓRA
+#define BTN_RIGHT  4                     // pin PRAWO
+#define BTN_CENTER 5                     // pin OK
+#define BTN_LEFT   6                     // pin LEWO 
+#define BTN_DOWN   3                     // pin DÓŁ
 // wyświetlacz
-#define OLED_BRIGHTNESS 10             // 0-15 (wartość * 16 daje zakres 0-240 dla kontrastu SSD1306)
-#define DISPLAY_REFRESH_RATE_MS 50     // odświeżanie ekranu (100ms = 10 FPS)
+#define OLED_BRIGHTNESS 10               // 0-15 (wartość * 16 daje zakres 0-240 dla kontrastu SSD1306)
+#define DISPLAY_REFRESH_RATE_MS 50       // odświeżanie ekranu (100ms = 10 FPS)
 // bateria
-#define BATTERY_LOW_BLINK_MS 500       // interwał mrugania słabej baterii
+#define BATTERY_LOW_BLINK_MS 500         // interwał mrugania słabej baterii
 // watchdog
-#define WDT_TIMEOUT 30                 // timeout watchdog w sekundach
+#define WDT_TIMEOUT 30                   // timeout watchdog w sekundach
 //==================================================================================================
 
 #define SCREEN_WIDTH 128
@@ -440,7 +440,7 @@ void updateDisplay() {
       display.drawFastHLine(x, yLine + (8 - barHeights[i]), barWidth, SSD1306_WHITE);
   }
 
-  int batX = 23;
+  int batX = 26;
   int batWidth = 20;
   int batHeight = 8;
   
@@ -457,7 +457,7 @@ void updateDisplay() {
     if (fillWidth > 0) display.fillRect(batX + 1, yLine + 1, fillWidth, batHeight - 2, SSD1306_WHITE);
   }
 
-  int volX = 52;
+  int volX = 57;
   display.drawBitmap(volX, yLine, speakerIcon, 8, 8, SSD1306_WHITE);
   display.setCursor(volX + 10, yLine);
   display.setTextSize(1);
