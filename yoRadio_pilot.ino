@@ -18,12 +18,12 @@
 #define DNS1_IP "192.168.1.1"          // DNS 1
 #define DNS2_IP "8.8.8.8"              // DNS 2
 // OTA
-#define OTAhostname "yoRadio_pilot"
-#define OTApassword "12345987"
+#define OTAhostname "yoRadio_pilot"    // nazwa dla OTA
+#define OTApassword "12345987"         // hasło dla OTA
 // yoRadio
 #define IP_YORADIO "192.168.1.101"     // IP yoRadio
 // uśpienie
-#define DEEP_SLEEP_TIMEOUT_SEC 15      // sekundy bezczynności przed deep sleep
+#define DEEP_SLEEP_TIMEOUT_SEC 60      // sekundy bezczynności przed deep sleep
 // klawiattura
 #define BTN_UP     7                   // pin GÓRA
 #define BTN_RIGHT  4                   // pin PRAWO
@@ -409,7 +409,7 @@ void updateDisplay() {
     scrollStates[2].t_start = millis();
     scrollStates[2].t_last = millis();
     scrollStates[2].isMoving = false;
-    prepareScroll(2, utwor, scrollConfs[2]. fontsize);
+    prepareScroll(2, utwor, scrollConfs[2].fontsize);
   }
 
   // === UPDATE SCROLLS ===
@@ -463,18 +463,18 @@ void updateDisplay() {
   display.setTextColor(SSD1306_WHITE);
   display.print(volume);
 
-  // display.setCursor(90, yLine);
-  // display.print(bitrate);
-  // display.print("kbs");
-
-  int bitrateX = 80;
-  display.fillRect(bitrateX, yLine, SCREEN_WIDTH - bitrateX, 8, SSD1306_WHITE);  // Negatyw
-  display.setCursor(bitrateX + 2, yLine);
-  display.setTextColor(SSD1306_BLACK);  // Czarny tekst na białym tle
-  display.print(" ");
+  display.setCursor(90, yLine);
   display.print(bitrate);
-  display.print("kbs ");
-  display.setTextColor(SSD1306_WHITE);  // Przywróć normalny kolor dla kolejnych operacji
+  display.print("kbs");
+
+  // int bitrateX = 80;
+  // display.fillRect(bitrateX, yLine, SCREEN_WIDTH - bitrateX, 8, SSD1306_WHITE);  // Negatyw
+  // display.setCursor(bitrateX + 2, yLine);
+  // display.setTextColor(SSD1306_BLACK);  // Czarny tekst na białym tle
+  // display.print(" ");
+  // display.print(bitrate);
+  // display.print("kbs ");
+  // display.setTextColor(SSD1306_WHITE);  // Przywróć normalny kolor dla kolejnych operacji
 
   display.display();
 }
@@ -631,15 +631,21 @@ void setup() {
   IPAddress dns1;
   IPAddress dns2;
 
-  staticIP. fromString(STATIC_IP);
+  staticIP.fromString(STATIC_IP);
   gateway.fromString(GATEWAY_IP);
   subnet.fromString(SUBNET_MASK);
   dns1.fromString(DNS1_IP);
   dns2.fromString(DNS2_IP);
-  
+
+  WiFi.mode(WIFI_STA);
+  WiFi.config(staticIP, gateway, subnet, dns1, dns2);
+
   // ===== WIFI BEGIN =====
   Serial.print("Connecting to WiFi: ");
   Serial.println(WIFI_SSID);
+  Serial.print("Using static IP: ");
+  Serial.println(STATIC_IP);
+  
   WiFi.begin(WIFI_SSID, WIFI_PASS);
   wifiTimer = millis();
   wifiState = WIFI_CONNECTING;
