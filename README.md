@@ -26,8 +26,48 @@ Projekt sterownika wyświetlacza OLED dla radioodbiornika YoRadio.  Obsługuje w
 - **BTN_UP (pin 7)** - głośność w górę
 - **BTN_DOWN (pin 3)** - głośność w dół
 - **BTN_CENTER (pin 5)** - odtwórz/pauza
-- **BTN_LEFT (pin 6)** - poprzedni utwór
-- **BTN_RIGHT (pin 4)** - następny utwór
+- **BTN_LEFT (pin 6)** - poprzedni utwór (krótkie naciśnięcie) / poprzednie radio (długie naciśnięcie 2s)
+- **BTN_RIGHT (pin 4)** - następny utwór (krótkie naciśnięcie) / następne radio (długie naciśnięcie 2s)
+
+### Multi-Radio Support (v0.3+)
+System obsługuje do 9 radioodbiorników yoRadio jednocześnie:
+
+#### Konfiguracja
+```cpp
+const char* RADIO_IPS[] = {
+  "192.168.1.101",  // Radio #1
+  "192.168.1.102",  // Radio #2
+  "192.168.1.103"   // Radio #3
+};
+// NUM_RADIOS jest automatycznie obliczane z rozmiaru tablicy
+```
+
+#### Przełączanie między radiami
+- **LEFT (długie 2s)** - przełącz na poprzednie radio
+- **RIGHT (długie 2s)** - przełącz na następne radio
+- Akcja wykonuje się dokładnie po 2 sekundach trzymania przycisku
+- Tylko jedna akcja na cykl naciśnięcia (wymaga puszczenia przed kolejną)
+- Nie działa podczas deep sleep
+- Nie można przełączyć poniżej radio #1 (akcja ignorowana)
+- Nie można przełączyć powyżej ostatniego skonfigurowanego radia (akcja ignorowana)
+
+#### Wskaźnik radia
+- Numer radia wyświetlany w prawym górnym rogu linii 2 (artysta/utwór)
+- Format: ` x ` (z spacjami), gdzie x = numer radia (1-9)
+- Styl: czcionka rozmiar 1, tryb negatywowy (białe tło, czarny tekst)
+- Wyświetlane tylko gdy NUM_RADIOS > 1
+- Szerokość tekstu utworu automatycznie redukowana o 18 pikseli
+
+#### Persystencja
+- Wybrany numer radia zapisywany w pamięci RTC
+- Automatycznie przywracany po restarcie i wybudzeniu z deep sleep
+- Walidacja przy starcie (reset do 0 jeśli nieprawidłowy)
+
+#### WebSocket
+- Automatyczne rozłączenie ze starym radiem
+- Automatyczne połączenie z nowym radiem
+- Stan połączenia prawidłowo zarządzany
+- Czyszczenie stanu wyświetlacza przy przełączaniu
 
 ## Hardware
 
