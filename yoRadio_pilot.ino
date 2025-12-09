@@ -27,7 +27,7 @@ const char* RADIO_IPS[] = {
   "192.168.1.102",
   "192.168.1.103"
 };
-const int NUM_RADIOS = 3;  // Number of active radios (1-9)
+const int NUM_RADIOS = sizeof(RADIO_IPS) / sizeof(RADIO_IPS[0]);  // Auto-calculated from array size
 // uśpienie
 #define DEEP_SLEEP_TIMEOUT_SEC 60        // sekundy bezczynności przed deep sleep (podczas odtwarzania)
 #define DEEP_SLEEP_TIMEOUT_STOPPED_SEC 5 // sekundy bezczynności przed deep sleep (gdy zatrzymany)
@@ -126,7 +126,8 @@ struct ScrollConfig {
 };
 
 // Calculate width for line 1 (artist/track) - reduce by radio number width if NUM_RADIOS > 1
-// Radio number format: " x " (3 chars) in size 1 = 3 * 6 = 18 pixels
+// Radio number format: " x " where x can be 1-9 (e.g., " 9 ")
+// Calculation: 3 chars * 6 pixels/char * scale 1 = 18 pixels
 const int RADIO_NUMBER_WIDTH = (NUM_RADIOS > 1) ? 18 : 0;
 
 const ScrollConfig scrollConfs[3] = {
@@ -521,7 +522,7 @@ void updateDisplay() {
     String radioText = " " + String(currentRadio + 1) + " ";
     int radioWidth = getPixelWidth5x7(radioText, 1);
     int radioX = SCREEN_WIDTH - radioWidth;
-    int radioY = 19;  // Same Y as line 1 (artist/track line)
+    int radioY = scrollConfs[1].top;  // Use scroll config for consistency
     
     // Draw white background
     display.fillRect(radioX, radioY, radioWidth, 8, SSD1306_WHITE);
@@ -956,7 +957,7 @@ void loop() {
       // Button is being held
       if (millis() - leftPressStartTime >= LONG_PRESS_TIME) {
         // Long press action - switch to previous radio
-        if (NUM_RADIOS > 1 && currentRadio > 0) {
+        if (NUM_RADIOS > 1) {
           switchToRadio(currentRadio - 1);
           anyButtonPressed = true;
         }
@@ -984,7 +985,7 @@ void loop() {
       // Button is being held
       if (millis() - rightPressStartTime >= LONG_PRESS_TIME) {
         // Long press action - switch to next radio
-        if (NUM_RADIOS > 1 && currentRadio < NUM_RADIOS - 1) {
+        if (NUM_RADIOS > 1) {
           switchToRadio(currentRadio + 1);
           anyButtonPressed = true;
         }
