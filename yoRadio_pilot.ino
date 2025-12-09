@@ -126,8 +126,9 @@ struct ScrollConfig {
 };
 
 // Calculate width for line 1 (artist/track) - reduce by radio number width if NUM_RADIOS > 1
-// Radio number format: " x " where x can be 1-9 (e.g., " 9 ")
-// Calculation: 3 chars * 6 pixels/char * scale 1 = 18 pixels
+// Radio number format: " x " where x is 1-9 (e.g., " 9 ")
+// Calculation: 3 chars * (5 pixels + 1 spacing) * scale 1 = 18 pixels
+// Note: NUM_RADIOS is validated at startup to not exceed 9 for single-digit display
 const int RADIO_NUMBER_WIDTH = (NUM_RADIOS > 1) ? 18 : 0;
 
 const ScrollConfig scrollConfs[3] = {
@@ -758,6 +759,13 @@ void setup() {
   delay(100);
   Serial.print("\n\nStarting YoRadio OLED Display v");
   Serial.println(FIRMWARE_VERSION);
+  
+  // Validate NUM_RADIOS limit
+  if (NUM_RADIOS > 9) {
+    Serial.println("ERROR: NUM_RADIOS exceeds maximum of 9!");
+    Serial.println("Please reduce the number of radios in RADIO_IPS array.");
+    for(;;);  // Halt execution
+  }
   
   // Validate and restore current radio from RTC memory
   if (currentRadio < 0 || currentRadio >= NUM_RADIOS) {
