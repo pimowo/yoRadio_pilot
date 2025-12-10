@@ -21,8 +21,9 @@
 // OTA
 #define OTAhostname "yoRadio_pilot"      // nazwa dla OTA
 #define OTApassword "12345987"           // hasło dla OTA
-// yoRadio
-#define IP_YORADIO "192.168.1.101"       // IP yoRadio
+// yoRadio - multi-radio support
+const char* RADIO_IPS[] = {"192.168.1.101", "192.168.1.102", "192.168.1.103"};
+#define NUM_RADIOS 3                     // liczba aktywnych radiów (max 9)
 // uśpienie
 #define DEEP_SLEEP_TIMEOUT_SEC 60        // sekundy bezczynności przed deep sleep (podczas odtwarzania)
 #define DEEP_SLEEP_TIMEOUT_STOPPED_SEC 5 // sekundy bezczynności przed deep sleep (gdy zatrzymany)
@@ -32,6 +33,7 @@
 #define BTN_CENTER 5                     // pin OK
 #define BTN_LEFT   6                     // pin LEWO 
 #define BTN_DOWN   3                     // pin DÓŁ
+#define LONG_PRESS_TIME 2000             // czas long-press w milisekundach (2s)
 // wyświetlacz
 #define OLED_BRIGHTNESS 10               // 0-15 (wartość * 16 daje zakres 0-240 dla kontrastu SSD1306)
 #define DISPLAY_REFRESH_RATE_MS 50       // odświeżanie ekranu (100ms = 10 FPS)
@@ -51,6 +53,9 @@ WebSocketsClient webSocket;
 #define LED_PIN 48       // GPIO 48
 #define NUM_LEDS 1       // Ile LED-ów?  (1 jeśli jeden chipik)
 Adafruit_NeoPixel strip(NUM_LEDS, LED_PIN, NEO_GRB + NEO_KHZ800);
+
+// Multi-radio: currentRadio persists through deep sleep
+RTC_DATA_ATTR int currentRadio = 0;
 
 int batteryPercent = 100;
 String meta = "";
@@ -80,6 +85,11 @@ bool lastDownState = HIGH;
 bool volumeChanging = false;
 unsigned long volumeChangeTime = 0;
 const unsigned long VOLUME_DISPLAY_TIME = 2000;  // 2 sekundy wyświetlania
+
+// CENTER button long-press tracking
+unsigned long centerPressStartTime = 0;
+bool centerActionExecuted = false;
+bool centerPressReleased = true;
 
 const unsigned char speakerIcon [] PROGMEM = {
   0b00011000, 0b00111000, 0b11111100, 0b11111100,
@@ -624,6 +634,45 @@ void sendCommand(const char* cmd) {
   }
 }
 
+void switchToRadio(int radioIndex) {
+  if (radioIndex < 0 || radioIndex >= NUM_RADIOS) {
+    Serial.print("Invalid radio index: ");
+    Serial.println(radioIndex);
+    return;
+  }
+  
+  Serial.print("Switching to radio ");
+  Serial.print(radioIndex + 1);
+  Serial.print(" (");
+  Serial.print(RADIO_IPS[radioIndex]);
+  Serial.println(")");
+  
+  // Disconnect old WebSocket
+  if (wsConnected) {
+    webSocket.disconnect();
+    wsConnected = false;
+  }
+  
+  // Update current radio
+  currentRadio = radioIndex;
+  
+  // Reset display state
+  stacja = "";
+  wykonawca = "";
+  utwor = "";
+  prev_stacja = "";
+  prev_wykonawca = "";
+  prev_utwor = "";
+  lastWebSocketMessage = millis();
+  
+  // Connect to new radio
+  Serial.print("Connecting to WebSocket at ");
+  Serial.print(RADIO_IPS[currentRadio]);
+  Serial.println(":80/ws");
+  webSocket.begin(RADIO_IPS[currentRadio], 80, "/ws");
+  webSocket.onEvent(webSocketEvent);
+}
+
 void enterDeepSleep() {
   Serial.println("Preparing deep sleep...");
   display.clearDisplay();
@@ -645,8 +694,8 @@ void enterDeepSleep() {
   // RTC_PERIPH MUSI BYĆ WŁĄCZONY, żeby RTC IO (EXT0/EXT1) działało.
   esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON);
 
-  // Możesz wyłączyć RTC slow/fast memory, jeśli nie używasz ich do przechowywania danych
-  esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_SLOW_MEM, ESP_PD_OPTION_OFF);
+  // Preserve RTC slow memory for currentRadio (RTC_DATA_ATTR variable)
+  esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_SLOW_MEM, ESP_PD_OPTION_ON);
   esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_FAST_MEM, ESP_PD_OPTION_OFF);
 
   Serial.println("Entering deep sleep in 50 ms...");
@@ -679,6 +728,19 @@ void setup() {
   delay(100);
   Serial.print("\n\nStarting YoRadio OLED Display v");
   Serial.println(FIRMWARE_VERSION);
+
+  // Validate currentRadio from RTC memory
+  if (currentRadio < 0 || currentRadio >= NUM_RADIOS) {
+    Serial.print("Invalid currentRadio from RTC: ");
+    Serial.print(currentRadio);
+    Serial.println(", resetting to 0");
+    currentRadio = 0;
+  }
+  Serial.print("Current radio: ");
+  Serial.print(currentRadio + 1);
+  Serial.print(" (");
+  Serial.print(RADIO_IPS[currentRadio]);
+  Serial.println(")");
 
   // Inicjalizacja watchdog timer
   // true = panic on timeout (reboot ESP32 jeśli watchdog nie zostanie zresetowany)
@@ -802,9 +864,9 @@ void loop() {
       Serial.println(WiFi.localIP());
       wifiState = WIFI_OK;
       Serial.print("Connecting to WebSocket at ");
-      Serial.print(IP_YORADIO);
+      Serial.print(RADIO_IPS[currentRadio]);
       Serial.println(":80/ws");
-      webSocket.begin(IP_YORADIO, 80, "/ws");
+      webSocket.begin(RADIO_IPS[currentRadio], 80, "/ws");
       webSocket.onEvent(webSocketEvent);
     }
     if (millis() - wifiTimer > wifiTimeout) {
@@ -850,14 +912,40 @@ void loop() {
       anyButtonPressed = true;
     }
 
-    if (curCenter == LOW && lastCenterState == HIGH) {
-      sendCommand("toggle=1");
-      anyButtonPressed = true;
+    // CENTER button: short press = toggle, long press (2s) = switch radio
+    if (curCenter == LOW) {
+      if (lastCenterState == HIGH) {
+        // Button just pressed - start timer
+        centerPressStartTime = millis();
+        centerActionExecuted = false;
+        centerPressReleased = false;
+      } else {
+        // Button held - check for long press
+        if (!centerActionExecuted && (millis() - centerPressStartTime >= LONG_PRESS_TIME)) {
+          // Long press detected - switch to next radio (cyclic)
+          int nextRadio = (currentRadio + 1) % NUM_RADIOS;
+          switchToRadio(nextRadio);
+          centerActionExecuted = true;
+          anyButtonPressed = true;
+        }
+      }
+    } else {
+      // Button released
+      if (lastCenterState == LOW && !centerActionExecuted && centerPressReleased == false) {
+        // Short press - toggle play/pause
+        sendCommand("toggle=1");
+        anyButtonPressed = true;
+      }
+      centerPressReleased = true;
     }
+    
+    // LEFT button: short press only
     if (curLeft == LOW && lastLeftState == HIGH) {
       sendCommand("prev=1");
       anyButtonPressed = true;
     }
+    
+    // RIGHT button: short press only
     if (curRight == LOW && lastRightState == HIGH) {
       sendCommand("next=1");
       anyButtonPressed = true;
