@@ -651,6 +651,7 @@ void switchToRadio(int radioIndex) {
   if (wsConnected) {
     webSocket.disconnect();
     wsConnected = false;
+    delay(100);  // Give WebSocket time to disconnect properly
   }
   
   // Update current radio
@@ -663,6 +664,7 @@ void switchToRadio(int radioIndex) {
   prev_stacja = "";
   prev_wykonawca = "";
   prev_utwor = "";
+  // Reset timeout timer to prevent false timeout during connection to new radio
   lastWebSocketMessage = millis();
   
   // Connect to new radio
@@ -931,7 +933,7 @@ void loop() {
       }
     } else {
       // Button released
-      if (lastCenterState == LOW && !centerActionExecuted && centerPressReleased == false) {
+      if (lastCenterState == LOW && !centerActionExecuted && !centerPressReleased) {
         // Short press - toggle play/pause
         sendCommand("toggle=1");
         anyButtonPressed = true;
