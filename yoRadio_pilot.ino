@@ -9,7 +9,7 @@
 
 //==================================================================================================
 // firmware
-#define FIRMWARE_VERSION "0.2"           // wersja oprogramowania
+#define FIRMWARE_VERSION "0.3"           // wersja oprogramowania
 // sieć
 #define WIFI_SSID "pimowo"               // sieć 
 #define WIFI_PASS "ckH59LRZQzCDQFiUgj"   // hasło sieci
@@ -21,8 +21,13 @@
 // OTA
 #define OTAhostname "yoRadio_pilot"      // nazwa dla OTA
 #define OTApassword "12345987"           // hasło dla OTA
-// yoRadio
-#define IP_YORADIO "192.168.1.101"       // IP yoRadio
+// yoRadio - multi-radio support
+const char* RADIO_IPS[] = {
+  "192.168.1.101",                       // Radio 1
+  "192.168.1.102",                       // Radio 2
+  "192.168.1.103"                        // Radio 3
+};
+#define NUM_RADIOS 3                     // liczba dostępnych radiów
 // uśpienie
 #define DEEP_SLEEP_TIMEOUT_SEC 60        // sekundy bezczynności przed deep sleep (podczas odtwarzania)
 #define DEEP_SLEEP_TIMEOUT_STOPPED_SEC 5 // sekundy bezczynności przed deep sleep (gdy zatrzymany)
@@ -32,6 +37,7 @@
 #define BTN_CENTER 5                     // pin OK
 #define BTN_LEFT   6                     // pin LEWO 
 #define BTN_DOWN   3                     // pin DÓŁ
+#define LONG_PRESS_TIME 2000             // czas long-press w ms (2 sekundy)
 // wyświetlacz
 #define OLED_BRIGHTNESS 10               // 0-15 (wartość * 16 daje zakres 0-240 dla kontrastu SSD1306)
 #define DISPLAY_REFRESH_RATE_MS 50       // odświeżanie ekranu (100ms = 10 FPS)
@@ -51,6 +57,9 @@ WebSocketsClient webSocket;
 #define LED_PIN 48       // GPIO 48
 #define NUM_LEDS 1       // Ile LED-ów?  (1 jeśli jeden chipik)
 Adafruit_NeoPixel strip(NUM_LEDS, LED_PIN, NEO_GRB + NEO_KHZ800);
+
+// Multi-radio support - current radio stored in RTC memory (persists through deep sleep)
+RTC_DATA_ATTR int currentRadio = 0;
 
 int batteryPercent = 100;
 String meta = "";
@@ -81,6 +90,11 @@ bool volumeChanging = false;
 unsigned long volumeChangeTime = 0;
 const unsigned long VOLUME_DISPLAY_TIME = 2000;  // 2 sekundy wyświetlania
 
+// CENTER button long-press state for radio switching
+unsigned long centerPressStartTime = 0;
+bool centerActionExecuted = false;
+bool centerPressReleased = true;
+
 const unsigned char speakerIcon [] PROGMEM = {
   0b00011000, 0b00111000, 0b11111100, 0b11111100,
   0b11111100, 0b00111000, 0b00011000, 0b00001000
@@ -108,9 +122,12 @@ struct ScrollConfig {
   unsigned long scrolltime;
 };
 
+// Calculate radio number display width
+const int RADIO_NUMBER_WIDTH = (NUM_RADIOS > 1) ? 18 : 0;  // " x " with spaces
+
 const ScrollConfig scrollConfs[3] = {
   {2, 1, 2, SCREEN_WIDTH - 4, 10, 2, 1500},
-  {0, 19, 2, SCREEN_WIDTH - 2, 10, 2, 1500},
+  {0, 19, 2, SCREEN_WIDTH - 2 - RADIO_NUMBER_WIDTH, 10, 2, 1500},
   {0, 38, 1, SCREEN_WIDTH - 2, 10, 2, 1500}
 };
 
@@ -492,6 +509,22 @@ void updateDisplay() {
     drawScrollLine(1, scrollConfs[1]. fontsize);  // Utwór na linii artysty
   }
 
+  // === RADIO NUMBER DISPLAY (only if NUM_RADIOS > 1) ===
+  if (NUM_RADIOS > 1) {
+    // Display radio number in top-right of line 2 (artist/track line)
+    int radioY = 19;  // Same y as line 2
+    int radioX = SCREEN_WIDTH - RADIO_NUMBER_WIDTH + 2;  // Right-aligned with 2px margin
+    
+    // Draw white background box for radio number
+    display.fillRect(radioX, radioY, RADIO_NUMBER_WIDTH - 2, 16, SSD1306_WHITE);
+    
+    // Draw radio number in negative mode (black text on white background)
+    String radioText = " " + String(currentRadio + 1) + " ";
+    int radioTextWidth = getPixelWidth5x7(radioText, 1);
+    int radioTextX = radioX + ((RADIO_NUMBER_WIDTH - 2 - radioTextWidth) / 2);
+    drawString5x7(radioTextX, radioY + 4, radioText, 1, SSD1306_BLACK);
+  }
+
   // BOTTOM LINE: RSSI, battery, volume, bitrate
   const int yLine = 52;
   int rssiX = 0;
@@ -616,6 +649,58 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
   }
 }
 
+void switchToRadio(int radioIndex) {
+  // Validate radio index
+  if (radioIndex < 0 || radioIndex >= NUM_RADIOS) {
+    Serial.print("Invalid radio index: ");
+    Serial.println(radioIndex);
+    return;
+  }
+  
+  Serial.print("Switching to radio ");
+  Serial.print(radioIndex + 1);
+  Serial.print(" (");
+  Serial.print(RADIO_IPS[radioIndex]);
+  Serial.println(")");
+  
+  // Disconnect from current WebSocket
+  if (webSocket.isConnected()) {
+    webSocket.disconnect();
+    wsConnected = false;
+  }
+  
+  // Update current radio
+  currentRadio = radioIndex;
+  
+  // Reset WebSocket message timer
+  lastWebSocketMessage = millis();
+  
+  // Clear display state (station, artist, track)
+  stacja = "";
+  wykonawca = "";
+  utwor = "";
+  prev_stacja = "";
+  prev_wykonawca = "";
+  prev_utwor = "";
+  
+  // Reset scroll states
+  for (int i = 0; i < 3; i++) {
+    scrollStates[i].pos = 0;
+    scrollStates[i].t_start = millis();
+    scrollStates[i].t_last = millis();
+    scrollStates[i].isMoving = false;
+    scrollStates[i].scrolling = false;
+    scrollStates[i].text = "";
+  }
+  
+  // Connect to new radio
+  Serial.print("Connecting to WebSocket at ");
+  Serial.print(RADIO_IPS[currentRadio]);
+  Serial.println(":80/ws");
+  webSocket.begin(RADIO_IPS[currentRadio], 80, "/ws");
+  webSocket.onEvent(webSocketEvent);
+}
+
 void sendCommand(const char* cmd) {
   if (webSocket.isConnected()) {
     webSocket.sendTXT(cmd);
@@ -645,8 +730,8 @@ void enterDeepSleep() {
   // RTC_PERIPH MUSI BYĆ WŁĄCZONY, żeby RTC IO (EXT0/EXT1) działało.
   esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON);
 
-  // Możesz wyłączyć RTC slow/fast memory, jeśli nie używasz ich do przechowywania danych
-  esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_SLOW_MEM, ESP_PD_OPTION_OFF);
+  // Enable RTC slow memory to preserve currentRadio variable
+  esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_SLOW_MEM, ESP_PD_OPTION_ON);
   esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_FAST_MEM, ESP_PD_OPTION_OFF);
 
   Serial.println("Entering deep sleep in 50 ms...");
@@ -679,6 +764,18 @@ void setup() {
   delay(100);
   Serial.print("\n\nStarting YoRadio OLED Display v");
   Serial.println(FIRMWARE_VERSION);
+
+  // Validate currentRadio index from RTC memory
+  if (currentRadio < 0 || currentRadio >= NUM_RADIOS) {
+    Serial.print("Invalid currentRadio from RTC: ");
+    Serial.println(currentRadio);
+    currentRadio = 0;
+  }
+  Serial.print("Current radio: ");
+  Serial.print(currentRadio + 1);
+  Serial.print(" (");
+  Serial.print(RADIO_IPS[currentRadio]);
+  Serial.println(")");
 
   // Inicjalizacja watchdog timer
   // true = panic on timeout (reboot ESP32 jeśli watchdog nie zostanie zresetowany)
@@ -802,9 +899,9 @@ void loop() {
       Serial.println(WiFi.localIP());
       wifiState = WIFI_OK;
       Serial.print("Connecting to WebSocket at ");
-      Serial.print(IP_YORADIO);
+      Serial.print(RADIO_IPS[currentRadio]);
       Serial.println(":80/ws");
-      webSocket.begin(IP_YORADIO, 80, "/ws");
+      webSocket.begin(RADIO_IPS[currentRadio], 80, "/ws");
       webSocket.onEvent(webSocketEvent);
     }
     if (millis() - wifiTimer > wifiTimeout) {
@@ -837,12 +934,15 @@ void loop() {
 
     bool anyButtonPressed = false;
 
+    // UP button - volume up
     if (curUp == LOW) {
       sendCommand("volp=1");
       volumeChanging = true;
       volumeChangeTime = millis();
       anyButtonPressed = true;
     }
+    
+    // DOWN button - volume down
     if (curDown == LOW) {
       sendCommand("volm=1");
       volumeChanging = true;
@@ -850,14 +950,46 @@ void loop() {
       anyButtonPressed = true;
     }
 
-    if (curCenter == LOW && lastCenterState == HIGH) {
-      sendCommand("toggle=1");
-      anyButtonPressed = true;
+    // CENTER button - short press: toggle play/pause, long press: switch radio
+    if (curCenter == LOW) {
+      // Button is pressed
+      if (centerPressReleased) {
+        // Just pressed - record start time
+        centerPressStartTime = millis();
+        centerPressReleased = false;
+        centerActionExecuted = false;
+      } else {
+        // Still pressed - check if long press time reached
+        unsigned long pressDuration = millis() - centerPressStartTime;
+        if (pressDuration >= LONG_PRESS_TIME && !centerActionExecuted && NUM_RADIOS > 1) {
+          // Long press detected - switch to next radio
+          Serial.println("CENTER long press - switching radio");
+          switchToRadio((currentRadio + 1) % NUM_RADIOS);
+          centerActionExecuted = true;
+          anyButtonPressed = true;
+        }
+      }
+    } else {
+      // Button is released
+      if (!centerPressReleased) {
+        // Just released
+        if (!centerActionExecuted) {
+          // Short press - toggle play/pause
+          Serial.println("CENTER short press - toggle");
+          sendCommand("toggle=1");
+          anyButtonPressed = true;
+        }
+        centerPressReleased = true;
+      }
     }
+    
+    // LEFT button - previous station
     if (curLeft == LOW && lastLeftState == HIGH) {
       sendCommand("prev=1");
       anyButtonPressed = true;
     }
+    
+    // RIGHT button - next station
     if (curRight == LOW && lastRightState == HIGH) {
       sendCommand("next=1");
       anyButtonPressed = true;
