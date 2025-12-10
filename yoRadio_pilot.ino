@@ -122,12 +122,12 @@ struct ScrollConfig {
   unsigned long scrolltime;
 };
 
-// Calculate radio number display width
-const int RADIO_NUMBER_WIDTH = (NUM_RADIOS > 1) ? 18 : 0;  // " x " with spaces
+// Calculate radio number display width - for station line (line 0)
+const int RADIO_NUMBER_WIDTH = (NUM_RADIOS > 1) ? 18 : 0;  // space for digit in top-right
 
 const ScrollConfig scrollConfs[3] = {
-  {2, 1, 2, SCREEN_WIDTH - 4, 10, 2, 1500},
-  {0, 19, 2, SCREEN_WIDTH - 2 - RADIO_NUMBER_WIDTH, 10, 2, 1500},
+  {2, 1, 2, SCREEN_WIDTH - 4 - RADIO_NUMBER_WIDTH, 10, 2, 1500},
+  {0, 19, 2, SCREEN_WIDTH - 2, 10, 2, 1500},
   {0, 38, 1, SCREEN_WIDTH - 2, 10, 2, 1500}
 };
 
@@ -511,18 +511,16 @@ void updateDisplay() {
 
   // === RADIO NUMBER DISPLAY (only if NUM_RADIOS > 1) ===
   if (NUM_RADIOS > 1) {
-    // Display radio number in top-right of line 2 (artist/track line)
-    int radioY = 19;  // Same y as line 2
+    // Display radio number in top-right corner (on station bar - line 0)
+    int radioY = 1;  // Same y as line 0 (station bar)
     int radioX = SCREEN_WIDTH - RADIO_NUMBER_WIDTH + 2;  // Right-aligned with 2px margin
     
-    // Draw white background box for radio number
-    display.fillRect(radioX, radioY, RADIO_NUMBER_WIDTH - 2, 16, SSD1306_WHITE);
-    
     // Draw radio number in negative mode (black text on white background)
-    String radioText = " " + String(currentRadio + 1) + " ";
-    int radioTextWidth = getPixelWidth5x7(radioText, 1);
+    // The station bar already has white background, so just draw the digit
+    String radioText = String(currentRadio + 1);
+    int radioTextWidth = getPixelWidth5x7(radioText, 2);  // scale 2 to match station text
     int radioTextX = radioX + ((RADIO_NUMBER_WIDTH - 2 - radioTextWidth) / 2);
-    drawString5x7(radioTextX, radioY + 4, radioText, 1, SSD1306_BLACK);
+    drawString5x7(radioTextX, radioY, radioText, 2, SSD1306_BLACK);
   }
 
   // BOTTOM LINE: RSSI, battery, volume, bitrate
