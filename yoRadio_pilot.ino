@@ -577,12 +577,8 @@ void updateDisplay() {
   display.setTextColor(SSD1306_WHITE);
   display.print(volume);
 
-  // Wyświetl bitrate TYLKO gdy radio gra (playerwrap != "stop" i != "pause")
-  bool isPlaying = (!playerwrap.isEmpty() && 
-                    playerwrap != "stop" && 
-                    playerwrap != "pause" &&
-                    playerwrap != "stopped" &&
-                    playerwrap != "paused");
+  // Wyświetl bitrate TYLKO gdy radio gra (nie jest zatrzymane/pauzowane)
+  bool isPlaying = !isPlayerStopped();
 
   if (isPlaying) {
     display.setCursor(85, yLine);
@@ -629,7 +625,7 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
         String id = obj["id"].as<String>();
         if (id == "nameset") stacja = obj["value"].as<String>();
         if (id == "meta") {
-            String metaStr = obj["value"]. as<String>();
+            String metaStr = obj["value"].as<String>();
             int sep = metaStr.indexOf(" - ");
             
             if (sep > 0) {
