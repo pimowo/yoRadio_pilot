@@ -10,6 +10,7 @@
 //==================================================================================================
 // firmware
 #define FIRMWARE_VERSION "0.2"           // wersja oprogramowania
+#define DEBUG_SERIAL true                // włącz/wyłącz komunikaty na UART (true = włączone, false = wyłączone)
 // sieć
 #define WIFI_SSID "pimowo"               // sieć 
 #define WIFI_PASS "ckH59LRZQzCDQFiUgj"   // hasło sieci
@@ -40,6 +41,17 @@
 // watchdog
 #define WDT_TIMEOUT 30                   // timeout watchdog w sekundach
 //==================================================================================================
+
+// Makra dla komunikatów debug na UART
+#if DEBUG_SERIAL
+  #define DEBUG_PRINT(x) Serial.print(x)
+  #define DEBUG_PRINTLN(x) Serial.println(x)
+  #define DEBUG_PRINTF(...) Serial.printf(__VA_ARGS__)
+#else
+  #define DEBUG_PRINT(x)
+  #define DEBUG_PRINTLN(x)
+  #define DEBUG_PRINTF(...)
+#endif
 
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
@@ -91,50 +103,67 @@ const unsigned char wifiErrorIcon[] PROGMEM = {
   0b01000010, 0b00100100, 0b00011000, 0b00001000
 };
 
+// Enum stanów połączenia WiFi
 enum WifiState { WIFI_CONNECTING, WIFI_ERROR, WIFI_OK };
 WifiState wifiState = WIFI_CONNECTING;
 
 unsigned long wifiTimer = 0;
 const unsigned long wifiTimeout = 8000;
 
-// ===== SCROLL CONFIGURATION =====
+// Funkcja sprawdzająca czy player jest zatrzymany
+// Zwraca true jeśli radio jest w stanie stop/pause/stopped/paused
+bool isPlayerStopped() {
+  return (!playerwrap.isEmpty() && 
+          (playerwrap == "stop" || 
+           playerwrap == "pause" ||
+           playerwrap == "stopped" ||
+           playerwrap == "paused"));
+}
+
+// ===== KONFIGURACJA SCROLLOWANIA =====
+// Struktura konfiguracji scrollowania dla każdej linii tekstu na wyświetlaczu
 struct ScrollConfig {
-  int left;
-  int top;
-  int fontsize;
-  int width;
-  unsigned long scrolldelay;
-  int scrolldelta;
-  unsigned long scrolltime;
+  int left;                    // pozycja X początkowa
+  int top;                     // pozycja Y początkowa
+  int fontsize;                // rozmiar czcionki (1, 2, 3...)
+  int width;                   // szerokość dostępna dla tekstu
+  unsigned long scrolldelay;   // opóźnienie między krokami scrollowania (ms)
+  int scrolldelta;             // ilość pikseli przesunięcia na krok
+  unsigned long scrolltime;    // czas pauzy przed rozpoczęciem scrollowania (ms)
 };
 
+// Konfiguracje dla 3 linii: stacja (linia 0), wykonawca/utwór (linia 1), utwór (linia 2)
 const ScrollConfig scrollConfs[3] = {
-  {2, 1, 2, SCREEN_WIDTH - 4, 10, 2, 1500},
-  {0, 19, 2, SCREEN_WIDTH - 2, 10, 2, 1500},
-  {0, 38, 1, SCREEN_WIDTH - 2, 10, 2, 1500}
+  {2, 1, 2, SCREEN_WIDTH - 4, 10, 2, 1500},    // Linia 0: stacja
+  {0, 19, 2, SCREEN_WIDTH - 2, 10, 2, 1500},   // Linia 1: wykonawca lub utwór
+  {0, 38, 1, SCREEN_WIDTH - 2, 10, 2, 1500}    // Linia 2: utwór (gdy jest wykonawca)
 };
 
-// Stan scrolla dla każdej linii
+// Struktura stanu scrollowania dla każdej linii
 struct ScrollState {
-  int pos;
-  unsigned long t_last;
-  unsigned long t_start;
-  bool scrolling;
-  bool isMoving;
-  String text;
-  int singleTextWidth;
-  int suffixWidth;
+  int pos;                     // aktualna pozycja scrollowania (piksele)
+  unsigned long t_last;        // czas ostatniego kroku scrollowania
+  unsigned long t_start;       // czas rozpoczęcia scrollowania
+  bool scrolling;              // czy tekst wymaga scrollowania (jest za długi)
+  bool isMoving;               // czy tekst obecnie się przesuwa
+  String text;                 // tekst do wyświetlenia (z sufiksem jeśli scrolluje)
+  int singleTextWidth;         // szerokość pojedynczego tekstu w pikselach
+  int suffixWidth;             // szerokość sufiksu " * " w pikselach
 };
 
+// Tablica stanów scrollowania dla 3 linii
 ScrollState scrollStates[3] = {0};
 
+// Poprzednie wartości tekstów - do wykrywania zmian
 String prev_stacja = "";
 String prev_wykonawca = "";
 String prev_utwor = "";
 
+// Sufiks dodawany między powtórzeniami tekstu podczas scrollowania
 const char* scrollSuffix = " * ";
 
 // ===== SEKWENCYJNE PRZEWIJANIE =====
+// Indeks aktualnie scrollowanej linii (0-2). Tylko jedna linia scrolluje w danym momencie
 int activeScrollLine = 0;
 
 // ===== UTF-8 POLISH =====
@@ -222,24 +251,26 @@ bool containsNonAscii(const String &s) {
   return false;
 }
 
-// ===== SCROLL FUNCTIONS =====
+// ===== FUNKCJE SCROLLOWANIA =====
 
+// Przygotowanie tekstu do scrollowania dla danej linii
+// Sprawdza czy tekst mieści się w dostępnej przestrzeni i jeśli nie - dodaje sufiks oraz duplikat tekstu
 void prepareScroll(int line, const String& txt, int scale) {
   int singleWidth = getPixelWidth5x7(txt, scale);
   int availWidth = scrollConfs[line].width;
   
-  // Sprawdzaj TYLKO szerokość samego tekstu
+  // Sprawdź TYLKO szerokość samego tekstu (bez sufiksu)
   bool needsScroll = singleWidth > availWidth;
   
   if (needsScroll) {
-    // Tekst jest za długi - TERAZ dodaj sufiks do obliczenia
+    // Tekst jest za długi - dodaj sufiks i duplikat tekstu dla płynnego scrollowania
     int suffixWidth = getPixelWidth5x7(String(scrollSuffix), scale);
-    scrollStates[line].text = txt + String(scrollSuffix) + txt;
+    scrollStates[line].text = txt + String(scrollSuffix) + txt;  // "Tekst * Tekst"
     scrollStates[line].singleTextWidth = singleWidth;
     scrollStates[line].suffixWidth = suffixWidth;
     scrollStates[line].scrolling = true;
   } else {
-    // Tekst się mieści - BEZ suffiksa, bez obliczania jego szerokości
+    // Tekst się mieści - nie scrolluj, wyświetl bez sufiksu
     scrollStates[line].text = txt;
     scrollStates[line].singleTextWidth = singleWidth;
     scrollStates[line].suffixWidth = 0;  // Brak suffiksa
@@ -247,16 +278,19 @@ void prepareScroll(int line, const String& txt, int scale) {
   }
 }
 
+// Aktualizacja pozycji scrollowania dla danej linii
+// Implementuje sekwencyjne scrollowanie - tylko jedna linia przewija się w danym momencie
 void updateScroll(int line) {
   unsigned long now = millis();
   auto& conf = scrollConfs[line];
   auto& state = scrollStates[line];
   
-  // Jeśli nie przewija, ale jest aktywny - czekaj i przejdź do następnego
+  // Jeśli tekst nie wymaga scrollowania ale jest aktywną linią - odczekaj i przełącz na następną
   if (!state.scrolling) {
     if (line == activeScrollLine) {
       unsigned long elapsed = now - state.t_start;
       if (elapsed >= conf.scrolltime) {
+        // Przełącz na następną linię (0->1->2->0...)
         activeScrollLine = (activeScrollLine + 1) % 3;
         scrollStates[activeScrollLine].t_start = now;
         scrollStates[activeScrollLine].t_last = now;
@@ -267,27 +301,33 @@ void updateScroll(int line) {
     return;
   }
   
+  // Aktualizuj tylko aktywną linię scrollowania
   if (line != activeScrollLine) return;
   
   unsigned long elapsed = now - state.t_start;
   
+  // Jeśli tekst jest na początku i nie ruszył się jeszcze - odczekaj czas pauzy
   if (state.pos == 0 && ! state.isMoving) {
     if (elapsed >= conf.scrolltime) {
-      state.isMoving = true;
+      state.isMoving = true;  // Rozpocznij scrollowanie
       state.t_last = now;
     }
     return;
   }
   
+  // Przesuń tekst w lewo co scrolldelay milisekund
   if (now - state.t_last >= conf.scrolldelay) {
-    state.pos -= conf.scrolldelta;
+    state.pos -= conf.scrolldelta;  // Przesuń w lewo
     
+    // Sprawdź czy osiągnięto pozycję resetu (koniec pierwszego tekstu + sufiks)
     int resetPos = -(state.singleTextWidth + state.suffixWidth);
     if (state.pos <= resetPos) {
+      // Zresetuj pozycję - dzięki duplikatowi tekstu wygląda to na ciągłe scrollowanie
       state.pos = 0;
       state.isMoving = false;
       state.t_start = now;
       
+      // Przełącz na następną linię
       activeScrollLine = (activeScrollLine + 1) % 3;
       scrollStates[activeScrollLine].t_start = now;
       scrollStates[activeScrollLine].t_last = now;
@@ -299,16 +339,20 @@ void updateScroll(int line) {
   }
 }
 
+// Rysowanie linii tekstu (scrollowanego lub statycznego)
+// Linia 0 (stacja) jest w trybie negatywowym (czarny tekst na białym tle)
 void drawScrollLine(int line, int scale) {
   auto& conf = scrollConfs[line];
   auto& state = scrollStates[line];
   
-  int x = conf.left + state.pos;
+  int x = conf.left + state.pos;  // Pozycja X z uwzględnieniem przesunięcia scrollowania
   int y = conf.top;
   
   if (line == 0) {
+    // Linia 0 (stacja) - tryb negatywowy
     drawString5x7(x, y, state.text, scale, SSD1306_BLACK);
   } else {
+    // Linie 1 i 2 (wykonawca/utwór) - normalny tryb
     drawString5x7(x, y, state.text, scale, SSD1306_WHITE);
   }
 }
@@ -553,25 +597,29 @@ void updateDisplay() {
   display.display();
 }
 
+// Obsługa zdarzeń WebSocket
+// Połączenie z yoRadio przez WebSocket pozwala odbierać dane o stacji, utworze, głośności itp.
 void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
   if (type == WStype_CONNECTED) {
-    Serial.println("WebSocket connected!");
+    DEBUG_PRINTLN("WebSocket connected!");
     wsConnected = true;
     lastWebSocketMessage = millis();
+    lastActivityTime = millis();  // Resetuj timer aktywności przy połączeniu
     webSocket.sendTXT("getindex=1");
     return;
   }
 
   if (type == WStype_TEXT) {
     lastWebSocketMessage = millis();
-    Serial.print("WebSocket message: ");
-    Serial.println((char*)payload);
+    lastActivityTime = millis();  // Resetuj timer aktywności przy odbiorze wiadomości
+    DEBUG_PRINT("WebSocket message: ");
+    DEBUG_PRINTLN((char*)payload);
     
     StaticJsonDocument<256> doc;
     DeserializationError error = deserializeJson(doc, payload, length);
     if (error) {
-      Serial.print("JSON parse error: ");
-      Serial.println(error.c_str());
+      DEBUG_PRINT("JSON parse error: ");
+      DEBUG_PRINTLN(error.c_str());
       return;
     }
     
@@ -599,9 +647,9 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
         if (id == "fmt") fmt = obj["value"].as<String>();
         if (id == "playerwrap") {
           playerwrap = obj["value"].as<String>();
-          Serial.print("DEBUG: playerwrap = '");  // ← DODAJ
-          Serial.print(playerwrap);              // ← DODAJ
-          Serial.println("'");
+          DEBUG_PRINT("DEBUG: playerwrap = '");
+          DEBUG_PRINT(playerwrap);
+          DEBUG_PRINTLN("'");
         }
         if (id == "rssi") rssi = obj["value"].as<int>();
       }
@@ -611,49 +659,56 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
   }
   
   if (type == WStype_DISCONNECTED) {
-    Serial.println("WebSocket disconnected!");
+    DEBUG_PRINTLN("WebSocket disconnected!");
     wsConnected = false;
+    lastActivityTime = millis();  // Resetuj timer aktywności przy rozłączeniu
   }
 }
 
+// Wysłanie komendy do yoRadio przez WebSocket
 void sendCommand(const char* cmd) {
   if (webSocket.isConnected()) {
     webSocket.sendTXT(cmd);
-    Serial.print("Sent: ");
-    Serial.println(cmd);
+    DEBUG_PRINT("Sent: ");
+    DEBUG_PRINTLN(cmd);
   }
 }
 
+// Funkcja przechodzenia w tryb głębokiego uśpienia (deep sleep)
+// Deep sleep wyłącza większość układów ESP32, oszczędzając energię baterii
+// Urządzenie wybudza się po naciśnięciu przycisku CENTER (GPIO5)
 void enterDeepSleep() {
-  Serial.println("Preparing deep sleep...");
+  DEBUG_PRINTLN("Preparing deep sleep...");
+  
+  // Wyłącz wyświetlacz OLED
   display.clearDisplay();
   display.display();
-  display.ssd1306_command(0xAE);  // Wyłącz OLED
+  display.ssd1306_command(0xAE);  // Komenda wyłączenia wyświetlacza
   delay(100);
 
-  // Porządne zamknięcie usług sieciowych
+  // Porządne zamknięcie usług sieciowych przed uśpieniem
   webSocket.disconnect();
   WiFi.disconnect(true);
   WiFi.mode(WIFI_OFF);
   delay(100);
 
-  // Upewnij się, że przycisk CENTER (GPIO5) jest INPUT_PULLUP - już masz w setup()
-  // Używamy EXT0: pojedynczy pin wybudzający (pewniejszy)
-  Serial.println("Configuring EXT0 wakeup on GPIO5 (LOW)...");
-  esp_sleep_enable_ext0_wakeup(GPIO_NUM_5, 0); // 0 = LOW wakes up (przycisk zwiera do GND)
+  // Konfiguracja wybudzenia przez przycisk CENTER (GPIO5)
+  // EXT0 - pojedynczy pin wybudzający, bardziej niezawodny niż EXT1
+  DEBUG_PRINTLN("Configuring EXT0 wakeup on GPIO5 (LOW)...");
+  esp_sleep_enable_ext0_wakeup(GPIO_NUM_5, 0); // 0 = LOW wybudza (przycisk zwiera do GND)
 
-  // RTC_PERIPH MUSI BYĆ WŁĄCZONY, żeby RTC IO (EXT0/EXT1) działało.
+  // RTC_PERIPH musi być włączony aby GPIO wybudzający działał
   esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON);
 
-  // Możesz wyłączyć RTC slow/fast memory, jeśli nie używasz ich do przechowywania danych
+  // Wyłącz pamięć RTC (nie przechowujemy danych między uśpieniami)
   esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_SLOW_MEM, ESP_PD_OPTION_OFF);
   esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_FAST_MEM, ESP_PD_OPTION_OFF);
 
-  Serial.println("Entering deep sleep in 50 ms...");
-  Serial.flush();
+  DEBUG_PRINTLN("Entering deep sleep in 50 ms...");
+  Serial.flush();  // Zawsze używaj Serial.flush() przed uśpieniem (nie makro DEBUG)
   delay(50);
 
-  esp_deep_sleep_start();
+  esp_deep_sleep_start();  // Wejście w deep sleep - kod po tej linii nie zostanie wykonany
 }
 
 void oledSetContrast(uint8_t c) {
@@ -664,62 +719,58 @@ void oledSetContrast(uint8_t c) {
 void setup() {
   Serial.begin(115200);
 
-  // --- DEBUG: pokaz przyczynę wake ---
+  // Sprawdź przyczynę wybudzenia z deep sleep (diagnostyka)
   esp_sleep_wakeup_cause_t wakeupReason = esp_sleep_get_wakeup_cause();
   switch (wakeupReason) {
-    case ESP_SLEEP_WAKEUP_EXT0: Serial.println("Wakeup reason: EXT0 (single pin)"); break;
-    case ESP_SLEEP_WAKEUP_EXT1: Serial.println("Wakeup reason: EXT1 (mask)"); break;
-    case ESP_SLEEP_WAKEUP_TIMER: Serial.println("Wakeup reason: TIMER"); break;
-    case ESP_SLEEP_WAKEUP_TOUCHPAD: Serial.println("Wakeup reason: TOUCHPAD"); break;
-    case ESP_SLEEP_WAKEUP_ULP: Serial.println("Wakeup reason: ULP"); break;
-    case ESP_SLEEP_WAKEUP_UNDEFINED: Serial.println("Wakeup reason: UNDEFINED / normal boot"); break;
-    default: Serial.printf("Wakeup reason: %d\n", wakeupReason); break;
+    case ESP_SLEEP_WAKEUP_EXT0: DEBUG_PRINTLN("Wakeup reason: EXT0 (single pin)"); break;
+    case ESP_SLEEP_WAKEUP_EXT1: DEBUG_PRINTLN("Wakeup reason: EXT1 (mask)"); break;
+    case ESP_SLEEP_WAKEUP_TIMER: DEBUG_PRINTLN("Wakeup reason: TIMER"); break;
+    case ESP_SLEEP_WAKEUP_TOUCHPAD: DEBUG_PRINTLN("Wakeup reason: TOUCHPAD"); break;
+    case ESP_SLEEP_WAKEUP_ULP: DEBUG_PRINTLN("Wakeup reason: ULP"); break;
+    case ESP_SLEEP_WAKEUP_UNDEFINED: DEBUG_PRINTLN("Wakeup reason: UNDEFINED / normal boot"); break;
+    default: DEBUG_PRINTF("Wakeup reason: %d\n", wakeupReason); break;
   }
 
   delay(100);
-  Serial.print("\n\nStarting YoRadio OLED Display v");
-  Serial.println(FIRMWARE_VERSION);
+  DEBUG_PRINT("\n\nStarting YoRadio OLED Display v");
+  DEBUG_PRINTLN(FIRMWARE_VERSION);
 
-  // Inicjalizacja watchdog timer
-  // true = panic on timeout (reboot ESP32 jeśli watchdog nie zostanie zresetowany)
+  // Inicjalizacja watchdog timer - zabezpieczenie przed zawieszeniem programu
+  // true = panic on timeout (reboot ESP32 jeśli watchdog nie zostanie zresetowany w czasie)
   esp_task_wdt_init(WDT_TIMEOUT, true);
-  esp_task_wdt_add(NULL);  // Dodaj current task
-  Serial.println("Watchdog timer initialized");
+  esp_task_wdt_add(NULL);  // Dodaj obecne zadanie do monitorowania
+  DEBUG_PRINTLN("Watchdog timer initialized");
 
-  pinMode(BTN_UP, INPUT_PULLUP);
-  pinMode(BTN_RIGHT, INPUT_PULLUP);
-  pinMode(BTN_CENTER, INPUT_PULLUP);
-  pinMode(BTN_LEFT, INPUT_PULLUP);
-  pinMode(BTN_DOWN, INPUT_PULLUP);
+  // Konfiguracja przycisków z rezystorami podciągającymi
+  // Przyciski zwierają piny do masy (GND) gdy są naciśnięte
+  pinMode(BTN_UP, INPUT_PULLUP);      // Przycisk GÓRA - zwiększ głośność
+  pinMode(BTN_RIGHT, INPUT_PULLUP);   // Przycisk PRAWO - następna stacja
+  pinMode(BTN_CENTER, INPUT_PULLUP);  // Przycisk CENTER/OK - play/pause
+  pinMode(BTN_LEFT, INPUT_PULLUP);    // Przycisk LEWO - poprzednia stacja
+  pinMode(BTN_DOWN, INPUT_PULLUP);    // Przycisk DÓŁ - zmniejsz głośność
 
-  // === INICJALIZUJ I WYŁĄCZ WS2812 ===
-  // strip.begin();
-  // strip. show();          // Włącz komunikację
-  // strip.setBrightness(0); // Ustaw jasność na 0 (wyłączone)
-  // strip.clear();          // Wyczyść wszystkie LED
-  // strip.show();           // Wyślij do LED
-
-  // === WYŁĄCZ WS2812 LED ===
+  // Wyłącz diodę LED WS2812 (nie jest używana, oszczędność energii)
   strip.begin();
   strip.clear();
   strip.show();
 
+  // Inicjalizacja wyświetlacza OLED SSD1306 128x64
   if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
-    Serial.println(F("SSD1306 failed"));
-    for(;;);
+    Serial.println(F("SSD1306 failed"));  // Krytyczny błąd - zawsze wyświetl
+    for(;;);  // Zatrzymaj program jeśli wyświetlacz nie działa
   }
 
-  // Ustaw jasność OLED (0-15 mapuje na 0-255)
+  // Ustaw jasność/kontrast wyświetlacza OLED (0-15 mapowane na 0-240)
   uint8_t brightness = constrain(OLED_BRIGHTNESS, 0, 15);
-  //display.setContrast(brightness * 16);
   oledSetContrast(brightness * 16);
-  Serial.print("OLED brightness set to: ");
-  Serial.println(brightness);
+  DEBUG_PRINT("OLED brightness set to: ");
+  DEBUG_PRINTLN(brightness);
 
   display.clearDisplay();
   display.display();
 
-  // ===== STATYCZNE IP =====
+  // ===== KONFIGURACJA STATYCZNEGO ADRESU IP =====
+  // Używamy statycznego IP dla szybszego i bardziej niezawodnego połączenia
   IPAddress staticIP;
   IPAddress gateway;
   IPAddress subnet;
@@ -732,20 +783,21 @@ void setup() {
   dns1.fromString(DNS1_IP);
   dns2.fromString(DNS2_IP);
 
-  WiFi.mode(WIFI_STA);
+  WiFi.mode(WIFI_STA);  // Tryb stacji WiFi (klient)
   WiFi.config(staticIP, gateway, subnet, dns1, dns2);
 
-  // ===== WIFI BEGIN =====
-  Serial.print("Connecting to WiFi: ");
-  Serial.println(WIFI_SSID);
-  Serial.print("Using static IP: ");
-  Serial.println(STATIC_IP);
+  // ===== ROZPOCZĘCIE ŁĄCZENIA Z SIECIĄ WiFi =====
+  DEBUG_PRINT("Connecting to WiFi: ");
+  DEBUG_PRINTLN(WIFI_SSID);
+  DEBUG_PRINT("Using static IP: ");
+  DEBUG_PRINTLN(STATIC_IP);
   
   WiFi.begin(WIFI_SSID, WIFI_PASS);
   wifiTimer = millis();
   wifiState = WIFI_CONNECTING;
   
-  // Inicjalizacja ArduinoOTA
+  // ===== INICJALIZACJA OTA (Over-The-Air updates) =====
+  // OTA pozwala na aktualizację firmware przez WiFi bez podłączania kabla USB
   ArduinoOTA.setHostname(OTAhostname);
   ArduinoOTA.setPassword(OTApassword);
   ArduinoOTA.onStart([]() {
@@ -755,80 +807,90 @@ void setup() {
     } else {
       type = "filesystem";
     }
-    Serial.println("Start updating " + type);
+    DEBUG_PRINTLN("Start updating " + type);
   });
   ArduinoOTA.onEnd([]() {
-    Serial.println("\nEnd");
+    DEBUG_PRINTLN("\nEnd");
   });
   ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
-    Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
+    DEBUG_PRINTF("Progress: %u%%\r", (progress / (total / 100)));
   });
   ArduinoOTA.onError([](ota_error_t error) {
-    Serial.printf("Error[%u]: ", error);
+    DEBUG_PRINTF("Error[%u]: ", error);
     if (error == OTA_AUTH_ERROR) {
-      Serial.println("Auth Failed");
+      DEBUG_PRINTLN("Auth Failed");
     } else if (error == OTA_BEGIN_ERROR) {
-      Serial.println("Begin Failed");
+      DEBUG_PRINTLN("Begin Failed");
     } else if (error == OTA_CONNECT_ERROR) {
-      Serial.println("Connect Failed");
+      DEBUG_PRINTLN("Connect Failed");
     } else if (error == OTA_RECEIVE_ERROR) {
-      Serial.println("Receive Failed");
+      DEBUG_PRINTLN("Receive Failed");
     } else if (error == OTA_END_ERROR) {
-      Serial.println("End Failed");
+      DEBUG_PRINTLN("End Failed");
     }
   });
   ArduinoOTA.begin();
-  Serial.println("OTA ready");
+  DEBUG_PRINTLN("OTA ready");
   
-  // Inicjalizacja timerów
+  // Inicjalizacja timerów aktywności i komunikacji
   lastActivityTime = millis();
   lastWebSocketMessage = millis();
   lastDisplayUpdate = millis();
 }
 
 void loop() {
-  // Reset watchdog co iterację
+  // Resetuj watchdog co iterację pętli (zapobiega rebootowi przez watchdog)
   esp_task_wdt_reset();
   
-  // Obsługa OTA updates
+  // Obsługa aktualizacji OTA
   ArduinoOTA.handle();
   
+  // Obsługa zdarzeń WebSocket
   webSocket.loop();
 
+  // ===== MASZYNA STANÓW WiFi =====
   if (wifiState == WIFI_CONNECTING) {
+    // Stan: Łączenie z WiFi
     if (WiFi.status() == WL_CONNECTED) {
-      Serial.println("WiFi connected!");
-      Serial.print("IP: ");
-      Serial.println(WiFi.localIP());
+      DEBUG_PRINTLN("WiFi connected!");
+      DEBUG_PRINT("IP: ");
+      DEBUG_PRINTLN(WiFi.localIP());
       wifiState = WIFI_OK;
-      Serial.print("Connecting to WebSocket at ");
-      Serial.print(IP_YORADIO);
-      Serial.println(":80/ws");
+      // Rozpocznij łączenie z WebSocket po udanym połączeniu WiFi
+      DEBUG_PRINT("Connecting to WebSocket at ");
+      DEBUG_PRINT(IP_YORADIO);
+      DEBUG_PRINTLN(":80/ws");
       webSocket.begin(IP_YORADIO, 80, "/ws");
       webSocket.onEvent(webSocketEvent);
     }
     if (millis() - wifiTimer > wifiTimeout) {
-      Serial.println("WiFi connection timeout!");
+      DEBUG_PRINTLN("WiFi connection timeout!");
       wifiState = WIFI_ERROR;
     }
   } else if (wifiState == WIFI_OK) {
+    // Stan: WiFi połączony - monitoruj czy połączenie jest aktywne
     if (WiFi.status() != WL_CONNECTED) {
-      Serial.println("WiFi disconnected!");
+      DEBUG_PRINTLN("WiFi disconnected!");
       wifiState = WIFI_CONNECTING;
       wifiTimer = millis();
     }
   } else if (wifiState == WIFI_ERROR) {
+    // Stan: Błąd WiFi - próbuj ponownie połączyć
     if (WiFi.status() == WL_CONNECTED) {
-      Serial.println("WiFi reconnected!");
+      DEBUG_PRINTLN("WiFi reconnected!");
       wifiState = WIFI_OK;
     }
   }
 
+  // Aktualizuj wyświetlacz (z throttlingiem wbudowanym w funkcję)
   updateDisplay();
 
+  // ===== OBSŁUGA PRZYCISKÓW =====
+  // Sprawdzaj przyciski co ~120ms aby uniknąć zbyt częstego odpytywania
   if (millis() - lastButtonCheck > 120) {
     lastButtonCheck = millis();
 
+    // Odczytaj aktualny stan wszystkich przycisków (LOW = naciśnięty)
     bool curUp = digitalRead(BTN_UP);
     bool curRight = digitalRead(BTN_RIGHT);
     bool curCenter = digitalRead(BTN_CENTER);
@@ -837,12 +899,14 @@ void loop() {
 
     bool anyButtonPressed = false;
 
+    // Przycisk GÓRA - zwiększ głośność (powtarzalne przy przytrzymaniu)
     if (curUp == LOW) {
       sendCommand("volp=1");
       volumeChanging = true;
       volumeChangeTime = millis();
       anyButtonPressed = true;
     }
+    // Przycisk DÓŁ - zmniejsz głośność (powtarzalne przy przytrzymaniu)
     if (curDown == LOW) {
       sendCommand("volm=1");
       volumeChanging = true;
@@ -850,24 +914,29 @@ void loop() {
       anyButtonPressed = true;
     }
 
+    // Przycisk CENTER - play/pause (wykrywanie zbocza: LOW po poprzednim HIGH)
     if (curCenter == LOW && lastCenterState == HIGH) {
       sendCommand("toggle=1");
       anyButtonPressed = true;
     }
+    // Przycisk LEWO - poprzednia stacja (wykrywanie zbocza)
     if (curLeft == LOW && lastLeftState == HIGH) {
       sendCommand("prev=1");
       anyButtonPressed = true;
     }
+    // Przycisk PRAWO - następna stacja (wykrywanie zbocza)
     if (curRight == LOW && lastRightState == HIGH) {
       sendCommand("next=1");
       anyButtonPressed = true;
     }
 
     // Resetuj timer aktywności przy każdym naciśnięciu przycisku
+    // Zapobiega to przejściu w deep sleep podczas aktywnego użytkowania
     if (anyButtonPressed) {
       lastActivityTime = millis();
     }
 
+    // Zapisz aktualny stan przycisków dla wykrywania zbocza w następnej iteracji
     lastCenterState = curCenter;
     lastLeftState = curLeft;
     lastRightState = curRight;
@@ -875,27 +944,31 @@ void loop() {
     lastDownState = curDown;
   }
 
-  // Sprawdź bezczynność i przejdź w deep sleep
-  // Nota: unsigned arithmetic poprawnie obsługuje przepełnienie millis()
+  // ===== LOGIKA DEEP SLEEP =====
+  // Sprawdź czas bezczynności i przejdź w deep sleep po odpowiednim czasie
+  // Uwaga: arytmetyka unsigned long poprawnie obsługuje przepełnienie millis()
   unsigned long inactivityTime = millis() - lastActivityTime;
   
   // Sprawdź status playera i wybierz odpowiedni timeout
-  // Jeśli playerwrap nie został jeszcze zainicjowany (pusty), traktuj jako playing
-  // bool playerStopped = (!playerwrap.isEmpty() && (playerwrap == "stop" || playerwrap == "pause"));
-  bool playerStopped = (! playerwrap.isEmpty() && 
-                       (playerwrap == "stop" || 
-                       playerwrap == "pause" ||
-                       playerwrap == "stopped" ||
-                       playerwrap == "paused"));
+  // Gdy player jest zatrzymany - krótszy timeout (oszczędzanie baterii)
+  // Gdy player gra - dłuższy timeout (użytkownik słucha)
+  bool playerStopped = isPlayerStopped();
   unsigned long timeoutMs = playerStopped ? (DEEP_SLEEP_TIMEOUT_STOPPED_SEC * 1000) : (DEEP_SLEEP_TIMEOUT_SEC * 1000);
   
-  if (inactivityTime > timeoutMs) {
+  // Przejdź w deep sleep TYLKO gdy:
+  // 1. Upłynął czas bezczynności
+  // 2. WiFi jest połączony (WIFI_OK)
+  // 3. WebSocket jest połączony
+  // To zapobiega przejściu w deep sleep podczas łączenia lub błędów połączenia
+  if (inactivityTime > timeoutMs && 
+      wifiState == WIFI_OK && 
+      wsConnected) {
     if (playerStopped) {
-      Serial.println("Deep sleep triggered: Player stopped/paused timeout");
+      DEBUG_PRINTLN("Deep sleep triggered: Player stopped/paused timeout");
     } else {
-      Serial.println("Deep sleep triggered: General inactivity timeout");
+      DEBUG_PRINTLN("Deep sleep triggered: General inactivity timeout");
     }
     enterDeepSleep();
-    // Kod poniżej nie zostanie wykonany
+    // Kod poniżej nie zostanie wykonany - urządzenie przeszło w deep sleep
   }
 }
