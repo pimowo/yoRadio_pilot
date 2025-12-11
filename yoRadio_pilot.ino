@@ -47,6 +47,7 @@ const char* RADIO_IPS[] = {
 #define OLED_BRIGHTNESS 10               // 0-15 (wartość * 16 daje zakres 0-240 dla kontrastu SSD1306)
 #define DISPLAY_REFRESH_RATE_MS 50       // odświeżanie ekranu (100ms = 10 FPS)
 // bateria
+#define BATTERY_PIN 13                   // GPIO do pomiaru baterii (ADC)
 #define BATTERY_LOW_BLINK_MS 500         // interwał mrugania słabej baterii
 // watchdog
 #define WDT_TIMEOUT 30                   // timeout watchdog w sekundach
@@ -604,7 +605,7 @@ void updateDisplay() {
   // === RADIO NUMBER / RSSI DISPLAY (bottom-left) ===
   drawRadioOrRssiBottom();
 
-  // BATTERY (unchanged)
+  // BATTERY with proper icon
   const int yLine = 52;
   int batX = 25;
   int batWidth = 20;
@@ -617,10 +618,21 @@ void updateDisplay() {
   }
 
   if (showBattery) {
+    // Obudowa baterii
     display.drawRect(batX, yLine, batWidth, batHeight, SSD1306_WHITE);
+    // Końcówka baterii (plus)
     display.fillRect(batX + batWidth, yLine + 2, 2, batHeight - 4, SSD1306_WHITE);
-    int fillWidth = (batteryPercent * (batWidth - 2)) / 100;
-    if (fillWidth > 0) display.fillRect(batX + 1, yLine + 1, fillWidth, batHeight - 2, SSD1306_WHITE);
+    
+    // Wypełnienie zależne od poziomu (z marginesem 2px z każdej strony)
+    int fillWidth = ((batWidth - 4) * batteryPercent) / 100;
+    if (fillWidth > 0) {
+      display.fillRect(batX + 2, yLine + 2, fillWidth, batHeight - 4, SSD1306_WHITE);
+    }
+    
+    // Dodatkowa wizualizacja: ramka ostrzeżenia przy 20-30%
+    if (batteryPercent < 30 && batteryPercent >= 20) {
+      display.drawRect(batX - 1, yLine - 1, batWidth + 2, batHeight + 2, SSD1306_WHITE);
+    }
   }
 
   // VOLUME ICON and NUMBER (unchanged)
@@ -814,6 +826,34 @@ void oledSetContrast(uint8_t c) {
   display.ssd1306_command(c);
 }
 
+// Battery reading
+unsigned long lastBatteryRead = 0;
+const unsigned long BATTERY_READ_INTERVAL = 5000; // Odczyt baterii co 5 sekund
+
+// Funkcja do odczytu baterii (tymczasowo losowe dane)
+void readBattery() {
+  if (millis() - lastBatteryRead < BATTERY_READ_INTERVAL) {
+    return;
+  }
+  lastBatteryRead = millis();
+  
+  // TYMCZASOWO: Losowe dane baterii (0-100%)
+  // TODO: Zastąpić prawdziwym odczytem z ADC na GPIO 13
+  batteryPercent = random(0, 101);
+  
+  DPRINT("Battery: ");
+  DPRINT(batteryPercent);
+  DPRINTLN("%");
+  
+  /* DOCELOWA IMPLEMENTACJA (odkomentować gdy będzie podłączona bateria):
+  int rawValue = analogRead(BATTERY_PIN);
+  // Przykładowe mapowanie dla baterii Li-Ion (3.0V-4.2V) z dzielnikiem napięcia
+  // Dostosuj wartości do swojego układu!
+  float voltage = (rawValue / 4095.0) * 3.3 * 2.0; // *2.0 jeśli dzielnik 1:1
+  batteryPercent = constrain(map((int)(voltage * 100), 300, 420, 0, 100), 0, 100);
+  */
+}
+
 void setup() {
   Serial.begin(115200);
 
@@ -959,11 +999,20 @@ void setup() {
   lastActivityTime = millis();
   lastWebSocketMessage = millis();
   lastDisplayUpdate = millis();
+
+  // Inicjalizacja pomiaru baterii
+  pinMode(BATTERY_PIN, INPUT);
+  randomSeed(analogRead(0)); // Seed dla losowych danych
+  lastBatteryRead = millis();
+  readBattery(); // Pierwszy odczyt
 }
 
 void loop() {
   // Reset watchdog co iterację
   esp_task_wdt_reset();
+
+  // Odczyt baterii
+  readBattery();
 
   // Obsługa OTA updates
   ArduinoOTA.handle();
