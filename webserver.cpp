@@ -11,6 +11,14 @@
 AsyncWebServer webServer(80);
 bool apMode = false;
 
+// Safe string copy with guaranteed null termination
+static void safe_strncpy(char* dest, const char* src, size_t size) {
+  if (size > 0) {
+    strncpy(dest, src, size - 1);
+    dest[size - 1] = '\0';
+  }
+}
+
 // HTML page with inline CSS and JavaScript
 const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
@@ -626,21 +634,21 @@ void setupWebServer() {
       
       // Update config structure
       if (doc.containsKey("wifi_ssid"))
-        strncpy(config.wifi_ssid, doc["wifi_ssid"], sizeof(config.wifi_ssid) - 1);
+        safe_strncpy(config.wifi_ssid, doc["wifi_ssid"], sizeof(config.wifi_ssid));
       if (doc.containsKey("wifi_pass"))
-        strncpy(config.wifi_pass, doc["wifi_pass"], sizeof(config.wifi_pass) - 1);
+        safe_strncpy(config.wifi_pass, doc["wifi_pass"], sizeof(config.wifi_pass));
       if (doc.containsKey("use_dhcp"))
         config.use_dhcp = doc["use_dhcp"];
       if (doc.containsKey("static_ip"))
-        strncpy(config.static_ip, doc["static_ip"], sizeof(config.static_ip) - 1);
+        safe_strncpy(config.static_ip, doc["static_ip"], sizeof(config.static_ip));
       if (doc.containsKey("gateway"))
-        strncpy(config.gateway, doc["gateway"], sizeof(config.gateway) - 1);
+        safe_strncpy(config.gateway, doc["gateway"], sizeof(config.gateway));
       if (doc.containsKey("subnet"))
-        strncpy(config.subnet, doc["subnet"], sizeof(config.subnet) - 1);
+        safe_strncpy(config.subnet, doc["subnet"], sizeof(config.subnet));
       if (doc.containsKey("dns1"))
-        strncpy(config.dns1, doc["dns1"], sizeof(config.dns1) - 1);
+        safe_strncpy(config.dns1, doc["dns1"], sizeof(config.dns1));
       if (doc.containsKey("dns2"))
-        strncpy(config.dns2, doc["dns2"], sizeof(config.dns2) - 1);
+        safe_strncpy(config.dns2, doc["dns2"], sizeof(config.dns2));
       
       if (doc.containsKey("num_radios"))
         config.num_radios = doc["num_radios"];
@@ -652,7 +660,7 @@ void setupWebServer() {
         int i = 0;
         for (JsonVariant ip : ips) {
           if (i < 5) {
-            strncpy(config.radio_ips[i], ip.as<const char*>(), sizeof(config.radio_ips[i]) - 1);
+            safe_strncpy(config.radio_ips[i], ip.as<const char*>(), sizeof(config.radio_ips[i]));
             i++;
           }
         }
@@ -663,7 +671,7 @@ void setupWebServer() {
         int i = 0;
         for (JsonVariant name : names) {
           if (i < 5) {
-            strncpy(config.radio_names[i], name.as<const char*>(), sizeof(config.radio_names[i]) - 1);
+            safe_strncpy(config.radio_names[i], name.as<const char*>(), sizeof(config.radio_names[i]));
             i++;
           }
         }
@@ -677,9 +685,9 @@ void setupWebServer() {
         config.long_press_time = doc["long_press_time"];
       
       if (doc.containsKey("ota_hostname"))
-        strncpy(config.ota_hostname, doc["ota_hostname"], sizeof(config.ota_hostname) - 1);
+        safe_strncpy(config.ota_hostname, doc["ota_hostname"], sizeof(config.ota_hostname));
       if (doc.containsKey("ota_password"))
-        strncpy(config.ota_password, doc["ota_password"], sizeof(config.ota_password) - 1);
+        safe_strncpy(config.ota_password, doc["ota_password"], sizeof(config.ota_password));
       
       if (doc.containsKey("oled_brightness"))
         config.oled_brightness = doc["oled_brightness"];
