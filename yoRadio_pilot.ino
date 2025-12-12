@@ -8,10 +8,10 @@
 #include "font5x7.h"
 #include "config.h"
 #include "webserver.h"
+#include "version.h"
 
 //==================================================================================================
-// firmware
-#define FIRMWARE_VERSION "0.3"           // wersja oprogramowania
+// firmware version is now defined in version.h
 
 // ====================== USTAWIENIA / SETTINGS ======================
 // Ustawienia są teraz wczytywane z config.h i zapisywane w SPIFFS
@@ -1090,7 +1090,8 @@ void loop() {
                        playerwrap == "pause" ||
                        playerwrap == "stopped" ||
                        playerwrap == "paused"));
-  unsigned long timeoutMs = playerStopped ? (config.deep_sleep_timeout_stopped * 1000UL) : (config.deep_sleep_timeout * 1000UL);
+  const unsigned long SECONDS_TO_MS = 1000UL;
+  unsigned long timeoutMs = playerStopped ? (config.deep_sleep_timeout_stopped * SECONDS_TO_MS) : (config.deep_sleep_timeout * SECONDS_TO_MS);
 
   if (inactivityTime > timeoutMs) {
     if (playerStopped) {

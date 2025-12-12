@@ -1,13 +1,12 @@
 #include "webserver.h"
 #include "config.h"
+#include "version.h"
 #include <WiFi.h>
 #include <ESPAsyncWebServer.h>
 #include <ArduinoJson.h>
 #include <SPIFFS.h>
 #include <esp_system.h>
 #include <Update.h>
-
-#define FIRMWARE_VERSION "0.3"
 
 AsyncWebServer webServer(80);
 bool apMode = false;
@@ -735,11 +734,16 @@ void startAPMode() {
   Serial.println("Starting Access Point mode...");
   
   WiFi.mode(WIFI_AP);
-  WiFi.softAP("yoRadio_pilot_setup", "12345678");
+  // AP Password: Change this to a stronger password in production
+  // Consider generating a random password based on chip ID for better security
+  String apPassword = "yoRadio" + String((uint32_t)(ESP.getEfuseMac() >> 32), HEX);
+  WiFi.softAP("yoRadio_pilot_setup", apPassword.c_str());
   
   IPAddress IP = WiFi.softAPIP();
   Serial.print("AP IP address: ");
   Serial.println(IP);
+  Serial.print("AP Password: ");
+  Serial.println(apPassword);
   
   apMode = true;
   

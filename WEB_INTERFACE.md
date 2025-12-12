@@ -50,7 +50,9 @@ This implementation adds a web-based configuration interface to yoRadio_pilot, e
 ### Access Point Mode
 - Activates after 15 seconds if WiFi connection fails
 - SSID: `yoRadio_pilot_setup`
-- Password: `12345678`
+- Password: Generated from ESP32 MAC address (check Serial Monitor)
+  - Format: `yoRadio` + chip ID in hex (e.g., `yoRadio1a2b3c4d`)
+  - More secure than fixed password
 - IP: `192.168.4.1`
 - Access web interface at `http://192.168.4.1`
 
@@ -173,24 +175,24 @@ yoRadio_pilot/
 
 1. Upload the firmware
 2. Device will create an Access Point if no configuration exists
-3. Connect to `yoRadio_pilot_setup` (password: `12345678`)
-4. Open browser to `http://192.168.4.1`
-5. Configure WiFi settings
-6. Save and restart
-7. Device will connect to your WiFi network
-8. Access configuration at device's IP address
+3. Check Serial Monitor for AP password (format: `yoRadio` + chip ID)
+4. Connect to `yoRadio_pilot_setup` with the displayed password
+5. Open browser to `http://192.168.4.1`
+6. Configure WiFi settings
+7. Save and restart
+8. Device will connect to your WiFi network
+9. Access configuration at device's IP address
 
-## Migrating from Hardcoded Configuration
+## Configuration
 
-The system automatically loads default values from the original `#define` statements when no configuration file exists. Your existing setup will work immediately with these defaults:
-
-- WiFi SSID: `pimowo`
-- WiFi Password: `ckH59LRZQzCDQFiUgj`
-- Static IP: `192.168.1.111`
+Default configuration uses placeholder values:
+- WiFi SSID: `YOUR_WIFI_SSID` (must be configured)
+- WiFi Password: `YOUR_WIFI_PASSWORD` (must be configured)
+- DHCP: Enabled by default
 - Radio IP: `192.168.1.101`
-- All other settings match the original firmware
+- All other settings match the original firmware defaults
 
-After first boot, modify settings through the web interface and save to persist them.
+**Important:** Update WiFi credentials through the web interface on first boot, or the device will start in AP mode.
 
 ## Partition Scheme
 
@@ -200,10 +202,11 @@ Ensure your ESP32 has a partition scheme that includes SPIFFS:
 
 ## Security Considerations
 
-- Default AP password is weak (`12345678`) - change after setup
+- AP password is generated from chip MAC address for uniqueness
 - Web interface has no authentication by default
 - Consider adding HTTP authentication for production use
-- OTA password should be strong
+- OTA password should be changed from default
+- WiFi credentials are stored in SPIFFS (not encrypted)
 
 ## Troubleshooting
 

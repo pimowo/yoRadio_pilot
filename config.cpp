@@ -6,10 +6,11 @@ Config config;
 
 // Default configuration values (from original #defines)
 void resetConfig() {
-  // WiFi defaults
-  strncpy(config.wifi_ssid, "pimowo", sizeof(config.wifi_ssid) - 1);
-  strncpy(config.wifi_pass, "ckH59LRZQzCDQFiUgj", sizeof(config.wifi_pass) - 1);
-  config.use_dhcp = false;
+  // WiFi defaults - CHANGE THESE FOR YOUR NETWORK
+  // These are placeholder values - update via web interface after first boot
+  strncpy(config.wifi_ssid, "YOUR_WIFI_SSID", sizeof(config.wifi_ssid) - 1);
+  strncpy(config.wifi_pass, "YOUR_WIFI_PASSWORD", sizeof(config.wifi_pass) - 1);
+  config.use_dhcp = true;  // Use DHCP by default for easier setup
   strncpy(config.static_ip, "192.168.1.111", sizeof(config.static_ip) - 1);
   strncpy(config.gateway, "192.168.1.1", sizeof(config.gateway) - 1);
   strncpy(config.subnet, "255.255.255.0", sizeof(config.subnet) - 1);
