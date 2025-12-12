@@ -6,62 +6,33 @@
 #include <ArduinoOTA.h>
 #include <esp_task_wdt.h>
 #include "font5x7.h"
+#include "config.h"
+#include "webserver.h"
 
 //==================================================================================================
 // firmware
 #define FIRMWARE_VERSION "0.3"           // wersja oprogramowania
 
 // ====================== USTAWIENIA / SETTINGS ======================
-// Debug UART messages: ustaw na 1 aby włączyć diagnostykę po UART, 0 aby wyłączyć
-#define DEBUG_UART 0
+// Ustawienia są teraz wczytywane z config.h i zapisywane w SPIFFS
+// Wartości domyślne są ustawiane w config.cpp jeśli brak pliku konfiguracyjnego
 
-// sieć
-#define WIFI_SSID "pimowo"               // sieć 
-#define WIFI_PASS "ckH59LRZQzCDQFiUgj"   // hasło sieci
-#define STATIC_IP "192.168.1.111"        // IP
-#define GATEWAY_IP "192.168.1.1"         // brama
-#define SUBNET_MASK "255.255.255.0"      // maska
-#define DNS1_IP "192.168.1.1"            // DNS 1
-#define DNS2_IP "8.8.8.8"                // DNS 2
-// OTA
-#define OTAhostname "yoRadio_pilot"      // nazwa dla OTA
-#define OTApassword "12345987"           // hasło dla OTA
-// yoRadio - multi-radio support
-const char* RADIO_IPS[] = {
-  "192.168.1.101",                       // Radio 1
-  "192.168.1.102",                       // Radio 2
-  "192.168.1.103"                        // Radio 3
-};
-#define NUM_RADIOS 1                     // liczba dostępnych radiów
-// uśpienie
-#define DEEP_SLEEP_TIMEOUT_SEC 60        // sekundy bezczynności przed deep sleep (podczas odtwarzania)
-#define DEEP_SLEEP_TIMEOUT_STOPPED_SEC 5 // sekundy bezczynności przed deep sleep (gdy zatrzymany)
-// klawiattura
+// klawiattura (stałe piny, nie konfigurowalne przez www)
 #define BTN_UP     7                     // pin GÓRA
 #define BTN_RIGHT  4                     // pin PRAWO
 #define BTN_CENTER 5                     // pin OK
 #define BTN_LEFT   6                     // pin LEWO 
 #define BTN_DOWN   3                     // pin DÓŁ
-#define LONG_PRESS_TIME 2000             // czas long-press w ms (2 sekundy)
-// wyświetlacz
-#define OLED_BRIGHTNESS 10               // 0-15 (wartość * 16 daje zakres 0-240 dla kontrastu SSD1306)
-#define DISPLAY_REFRESH_RATE_MS 50       // odświeżanie ekranu (100ms = 10 FPS)
 // bateria
 #define BATTERY_LOW_BLINK_MS 500         // interwał mrugania słabej baterii
 // watchdog
 #define WDT_TIMEOUT 30                   // timeout watchdog w sekundach
 // ==================================================================================================
 
-// Debug helpers
-#if DEBUG_UART
-  #define DPRINT(x) Serial.print(x)
-  #define DPRINTLN(x) Serial.println(x)
-  #define DPRINTF(fmt, ...) Serial.printf((fmt), __VA_ARGS__)
-#else
-  #define DPRINT(x)
-  #define DPRINTLN(x)
-  #define DPRINTF(fmt, ...)
-#endif
+// Debug helpers - now controlled by config
+#define DPRINT(x) if(config.debug_uart) Serial.print(x)
+#define DPRINTLN(x) if(config.debug_uart) Serial.println(x)
+#define DPRINTF(fmt, ...) if(config.debug_uart) Serial.printf((fmt), __VA_ARGS__)
 
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
@@ -356,12 +327,12 @@ void drawScrollLine(int line, int scale) {
 }
 
 // Draw radio number OR RSSI at bottom-left (same vertical position as vol/bitrate).
-// - If there's more than one RADIO_IP (NUM_RADIOS > 1) draw radio number in negative
+// - If there's more than one RADIO_IP (config.num_radios > 1) draw radio number in negative
 //   (white background + black built-in font) starting at x=0, format " x ".
 // - If only one radio IP configured, draw RSSI bars (original behavior).
 void drawRadioOrRssiBottom() {
   const int yLine = 52;
-  if (NUM_RADIOS > 1) {
+  if (config.num_radios > 1) {
     String radioText = " " + String(currentRadio + 1) + " ";
     // built-in font approximate width: 6 px per char at textSize=1
     int charWidth = 6;
@@ -402,8 +373,8 @@ void drawRadioOrRssiBottom() {
 }
 
 void updateDisplay() {
-  // Throttle display updates to DISPLAY_REFRESH_RATE_MS
-  if (millis() - lastDisplayUpdate < DISPLAY_REFRESH_RATE_MS) {
+  // Throttle display updates to config.display_refresh_rate
+  if (millis() - lastDisplayUpdate < config.display_refresh_rate) {
     return;
   }
   lastDisplayUpdate = millis();
@@ -464,7 +435,7 @@ void updateDisplay() {
       display.fillRect(x, yLine + (8 - barHeights[i]), barWidth, barHeights[i], SSD1306_WHITE);
     }
 
-    String ssidText = String(WIFI_SSID);
+    String ssidText = String(config.wifi_ssid);
     int ssidWidth = getPixelWidth5x7(ssidText, 1);
     int ssidX = (SCREEN_WIDTH - ssidWidth) / 2;
     int ssidY = 35;
@@ -716,7 +687,7 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
 
 void switchToRadio(int radioIndex) {
   // Validate radio index
-  if (radioIndex < 0 || radioIndex >= NUM_RADIOS) {
+  if (radioIndex < 0 || radioIndex >= config.num_radios) {
     DPRINT("Invalid radio index: ");
     DPRINTLN(radioIndex);
     return;
@@ -725,7 +696,7 @@ void switchToRadio(int radioIndex) {
   DPRINT("Switching to radio ");
   DPRINT(radioIndex + 1);
   DPRINT(" (");
-  DPRINT(RADIO_IPS[radioIndex]);
+  DPRINT(config.radio_ips[radioIndex]);
   DPRINTLN(")");
 
   // Disconnect from current WebSocket
@@ -762,9 +733,9 @@ void switchToRadio(int radioIndex) {
 
   // Connect to new radio
   DPRINT("Connecting to WebSocket at ");
-  DPRINT(RADIO_IPS[currentRadio]);
+  DPRINT(config.radio_ips[currentRadio]);
   DPRINTLN(":80/ws");
-  webSocket.begin(RADIO_IPS[currentRadio], 80, "/ws");
+  webSocket.begin(config.radio_ips[currentRadio], 80, "/ws");
   webSocket.onEvent(webSocketEvent);
 }
 
@@ -816,7 +787,15 @@ void oledSetContrast(uint8_t c) {
 
 void setup() {
   Serial.begin(115200);
-
+  delay(100);
+  
+  Serial.println("\n\nStarting YoRadio OLED Display v" + String(FIRMWARE_VERSION));
+  
+  // Load configuration from SPIFFS (or use defaults)
+  loadConfig();
+  
+  // Now we can use debug macros based on loaded config
+  
   // Initialize default scrollStates to safe defaults
   for (int i = 0; i < 3; ++i) {
     scrollStates[i].pos = 0;
@@ -841,20 +820,19 @@ void setup() {
     default: DPRINTF("Wakeup reason: %d\n", wakeupReason); break;
   }
 
-  delay(100);
-  DPRINT("\n\nStarting YoRadio OLED Display v");
-  DPRINTLN(FIRMWARE_VERSION);
-
   // Validate currentRadio index from RTC memory
-  if (currentRadio < 0 || currentRadio >= NUM_RADIOS) {
+  if (currentRadio < 0 || currentRadio >= config.num_radios) {
     DPRINT("Invalid currentRadio from RTC: ");
     DPRINTLN(currentRadio);
-    currentRadio = 0;
+    currentRadio = config.default_radio;
+    if (currentRadio < 0 || currentRadio >= config.num_radios) {
+      currentRadio = 0;
+    }
   }
   DPRINT("Current radio: ");
   DPRINT(currentRadio + 1);
   DPRINT(" (");
-  DPRINT(RADIO_IPS[currentRadio]);
+  DPRINT(config.radio_ips[currentRadio]);
   DPRINTLN(")");
 
   // Inicjalizacja watchdog timer
@@ -880,7 +858,7 @@ void setup() {
   }
 
   // Ustaw jasność OLED (0-15 mapuje na 0-255)
-  uint8_t brightness = constrain(OLED_BRIGHTNESS, 0, 15);
+  uint8_t brightness = constrain(config.oled_brightness, 0, 15);
   oledSetContrast(brightness * 16);
   DPRINT("OLED brightness set to: ");
   DPRINTLN(brightness);
@@ -888,35 +866,42 @@ void setup() {
   display.clearDisplay();
   display.display();
 
-  // ===== STATYCZNE IP =====
-  IPAddress staticIP;
-  IPAddress gateway;
-  IPAddress subnet;
-  IPAddress dns1;
-  IPAddress dns2;
-
-  staticIP.fromString(STATIC_IP);
-  gateway.fromString(GATEWAY_IP);
-  subnet.fromString(SUBNET_MASK);
-  dns1.fromString(DNS1_IP);
-  dns2.fromString(DNS2_IP);
-
+  // ===== WIFI SETUP =====
   WiFi.mode(WIFI_STA);
-  WiFi.config(staticIP, gateway, subnet, dns1, dns2);
+  
+  if (!config.use_dhcp) {
+    // Use static IP configuration
+    IPAddress staticIP;
+    IPAddress gateway;
+    IPAddress subnet;
+    IPAddress dns1;
+    IPAddress dns2;
+
+    staticIP.fromString(config.static_ip);
+    gateway.fromString(config.gateway);
+    subnet.fromString(config.subnet);
+    dns1.fromString(config.dns1);
+    dns2.fromString(config.dns2);
+
+    WiFi.config(staticIP, gateway, subnet, dns1, dns2);
+    
+    DPRINT("Using static IP: ");
+    DPRINTLN(config.static_ip);
+  } else {
+    DPRINTLN("Using DHCP");
+  }
 
   // ===== WIFI BEGIN =====
   DPRINT("Connecting to WiFi: ");
-  DPRINTLN(WIFI_SSID);
-  DPRINT("Using static IP: ");
-  DPRINTLN(STATIC_IP);
+  DPRINTLN(config.wifi_ssid);
 
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
+  WiFi.begin(config.wifi_ssid, config.wifi_pass);
   wifiTimer = millis();
   wifiState = WIFI_CONNECTING;
 
   // Inicjalizacja ArduinoOTA
-  ArduinoOTA.setHostname(OTAhostname);
-  ArduinoOTA.setPassword(OTApassword);
+  ArduinoOTA.setHostname(config.ota_hostname);
+  ArduinoOTA.setPassword(config.ota_password);
   ArduinoOTA.onStart([]() {
     String type;
     if (ArduinoOTA.getCommand() == U_FLASH) {
@@ -976,15 +961,25 @@ void loop() {
       DPRINT("IP: ");
       DPRINTLN(WiFi.localIP());
       wifiState = WIFI_OK;
+      
+      // Setup web server after successful WiFi connection
+      setupWebServer();
+      
       DPRINT("Connecting to WebSocket at ");
-      DPRINT(RADIO_IPS[currentRadio]);
+      DPRINT(config.radio_ips[currentRadio]);
       DPRINTLN(":80/ws");
-      webSocket.begin(RADIO_IPS[currentRadio], 80, "/ws");
+      webSocket.begin(config.radio_ips[currentRadio], 80, "/ws");
       webSocket.onEvent(webSocketEvent);
     }
     if (millis() - wifiTimer > wifiTimeout) {
       DPRINTLN("WiFi connection timeout!");
       wifiState = WIFI_ERROR;
+      
+      // Start AP mode if WiFi fails after timeout (15 seconds)
+      if (millis() - wifiTimer > 15000 && !isAPMode()) {
+        DPRINTLN("Starting AP mode due to WiFi failure...");
+        startAPMode();
+      }
     }
   } else if (wifiState == WIFI_OK) {
     if (WiFi.status() != WL_CONNECTED) {
@@ -1039,10 +1034,10 @@ void loop() {
       } else {
         // Still pressed - check if long press time reached
         unsigned long pressDuration = millis() - centerPressStartTime;
-        if (pressDuration >= LONG_PRESS_TIME && !centerActionExecuted && NUM_RADIOS > 1) {
+        if (pressDuration >= config.long_press_time && !centerActionExecuted && config.num_radios > 1) {
           // Long press detected - switch to next radio
           DPRINTLN("CENTER long press - switching radio");
-          switchToRadio((currentRadio + 1) % NUM_RADIOS);
+          switchToRadio((currentRadio + 1) % config.num_radios);
           centerActionExecuted = true;
           anyButtonPressed = true;
         }
@@ -1095,7 +1090,7 @@ void loop() {
                        playerwrap == "pause" ||
                        playerwrap == "stopped" ||
                        playerwrap == "paused"));
-  unsigned long timeoutMs = playerStopped ? (DEEP_SLEEP_TIMEOUT_STOPPED_SEC * 1000) : (DEEP_SLEEP_TIMEOUT_SEC * 1000);
+  unsigned long timeoutMs = playerStopped ? (config.deep_sleep_timeout_stopped * 1000UL) : (config.deep_sleep_timeout * 1000UL);
 
   if (inactivityTime > timeoutMs) {
     if (playerStopped) {
