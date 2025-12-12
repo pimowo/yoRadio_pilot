@@ -14,8 +14,9 @@ static void safe_strncpy(char* dest, const char* src, size_t size) {
 
 // Default configuration values (from original #defines)
 void resetConfig() {
-  // WiFi defaults - CHANGE THESE FOR YOUR NETWORK
-  // These are placeholder values - update via web interface after first boot
+  // WiFi defaults - These placeholder values will cause WiFi to fail and trigger AP mode
+  // This allows first-time configuration through the web interface without code changes
+  // Access the device at http://192.168.4.1 when in AP mode to configure WiFi
   safe_strncpy(config.wifi_ssid, "YOUR_WIFI_SSID", sizeof(config.wifi_ssid));
   safe_strncpy(config.wifi_pass, "YOUR_WIFI_PASSWORD", sizeof(config.wifi_pass));
   config.use_dhcp = true;  // Use DHCP by default for easier setup

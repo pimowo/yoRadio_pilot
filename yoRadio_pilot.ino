@@ -17,6 +17,9 @@
 // Ustawienia są teraz wczytywane z config.h i zapisywane w SPIFFS
 // Wartości domyślne są ustawiane w config.cpp jeśli brak pliku konfiguracyjnego
 
+// Constants
+#define SECONDS_TO_MS 1000UL             // conversion factor for timeout calculations
+
 // klawiattura (stałe piny, nie konfigurowalne przez www)
 #define BTN_UP     7                     // pin GÓRA
 #define BTN_RIGHT  4                     // pin PRAWO
@@ -1090,7 +1093,6 @@ void loop() {
                        playerwrap == "pause" ||
                        playerwrap == "stopped" ||
                        playerwrap == "paused"));
-  const unsigned long SECONDS_TO_MS = 1000UL;
   unsigned long timeoutMs = playerStopped ? (config.deep_sleep_timeout_stopped * SECONDS_TO_MS) : (config.deep_sleep_timeout * SECONDS_TO_MS);
 
   if (inactivityTime > timeoutMs) {

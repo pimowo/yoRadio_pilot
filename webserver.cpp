@@ -742,8 +742,8 @@ void startAPMode() {
   Serial.println("Starting Access Point mode...");
   
   WiFi.mode(WIFI_AP);
-  // AP Password: Change this to a stronger password in production
-  // Consider generating a random password based on chip ID for better security
+  // AP Password: Generated from ESP32 MAC address for uniqueness and security
+  // Each device has a different password, making it harder to guess
   String apPassword = "yoRadio" + String((uint32_t)(ESP.getEfuseMac() >> 32), HEX);
   WiFi.softAP("yoRadio_pilot_setup", apPassword.c_str());
   
