@@ -16,16 +16,18 @@
 #define DEBUG_UART 0
 
 // sieć
-#define WIFI_SSID "pimowo"               // sieć 
-#define WIFI_PASS "ckH59LRZQzCDQFiUgj"   // hasło sieci
-#define STATIC_IP "192.168.1.111"        // IP
-#define GATEWAY_IP "192.168.1.1"         // brama
+#define WIFI_SSID   "pimowo"             // sieć 
+#define WIFI_PASS   "ckH59LRZQzCDQFiUgj" // hasło sieci
+#define STATIC_IP   "192.168.1.111"      // IP
+#define GATEWAY_IP  "192.168.1.1"        // brama
 #define SUBNET_MASK "255.255.255.0"      // maska
-#define DNS1_IP "192.168.1.1"            // DNS 1
-#define DNS2_IP "8.8.8.8"                // DNS 2
+#define DNS1_IP     "192.168.1.1"        // DNS 1
+#define DNS2_IP     "8.8.8.8"            // DNS 2
+
 // OTA
 #define OTAhostname "yoRadio_pilot"      // nazwa dla OTA
 #define OTApassword "12345987"           // hasło dla OTA
+
 // yoRadio - multi-radio support
 const char* RADIO_IPS[] = {
   "192.168.1.101",                       // Radio 1
@@ -33,9 +35,11 @@ const char* RADIO_IPS[] = {
   "192.168.1.103"                        // Radio 3
 };
 #define NUM_RADIOS 1                     // liczba dostępnych radiów
+
 // uśpienie
 #define DEEP_SLEEP_TIMEOUT_SEC 60        // sekundy bezczynności przed deep sleep (podczas odtwarzania)
 #define DEEP_SLEEP_TIMEOUT_STOPPED_SEC 5 // sekundy bezczynności przed deep sleep (gdy zatrzymany)
+
 // klawiattura
 #define BTN_UP     7                     // pin GÓRA
 #define BTN_RIGHT  4                     // pin PRAWO
@@ -43,14 +47,21 @@ const char* RADIO_IPS[] = {
 #define BTN_LEFT   6                     // pin LEWO 
 #define BTN_DOWN   3                     // pin DÓŁ
 #define LONG_PRESS_TIME 2000             // czas long-press w ms (2 sekundy)
+
 // wyświetlacz
 #define OLED_BRIGHTNESS 10               // 0-15 (wartość * 16 daje zakres 0-240 dla kontrastu SSD1306)
 #define DISPLAY_REFRESH_RATE_MS 50       // odświeżanie ekranu (100ms = 10 FPS)
+
 // bateria
 #define BATTERY_LOW_BLINK_MS 500         // interwał mrugania słabej baterii
+
 // watchdog
 #define WDT_TIMEOUT 30                   // timeout watchdog w sekundach
 // ==================================================================================================
+
+// ===== I2C (ESP32-S3 Super Mini) =====
+#define I2C_SDA 8
+#define I2C_SCL 9
 
 // Debug helpers
 #if DEBUG_UART
