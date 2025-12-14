@@ -903,10 +903,10 @@ float readBatteryVoltage() {
 
 // Mapowanie voltage → procent (nieliniowa krzywa Li-Ion)
 int voltageToPercent(float v) {
-  // 15-punktowa krzywa rozładowania Li-Ion
-  const float voltages[] = {4.20, 4.15, 4.11, 4.08, 4.02, 3.98, 3.95, 3.91, 3.87, 3.85, 3.84, 3.82, 3.80, 3.79, 3.00};
-  const int percents[] =   {100,  95,   90,   85,   80,   70,   60,   50,   40,   30,   20,   15,   10,   5,    0};
-  const int points = 15;
+  // 19-punktowa krzywa rozładowania Li-Ion (z ulepszonymi punktami w zakresie krytycznym)
+  const float voltages[] = {4.20, 4.15, 4.11, 4.08, 4.02, 3.98, 3.95, 3.91, 3.87, 3.85, 3.84, 3.82, 3.80, 3.79, 3.70, 3.60, 3.40, 3.20, 3.00};
+  const int percents[] =   {100,  95,   90,   85,   80,   70,   60,   50,   40,   30,   20,   15,   10,   5,    4,    3,    2,    1,    0};
+  const int points = 19;
   
   // Poniżej minimum
   if (v <= voltages[points - 1]) return 0;
@@ -935,7 +935,7 @@ void checkBatteryAndShutdown(float voltage) {
     display.fillRect(0, 0, SCREEN_WIDTH, 16, SSD1306_WHITE);
     
     String line1 = "BATERIA PUSTA!";
-    String line2 = "Naładuj baterie";
+    String line2 = "Naładuj baterię";
     
     int line1Width = getPixelWidth5x7(line1, 1);
     int line2Width = getPixelWidth5x7(line2, 1);
