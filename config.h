@@ -61,7 +61,6 @@ const char* RADIO_IPS[] = {
 #define OLED_BRIGHTNESS 10               // 0-15 (wartość * 16 daje zakres 0-240 dla kontrastu SSD1306)
 #define DISPLAY_REFRESH_RATE_MS 50       // odświeżanie ekranu (50ms = 20 FPS)
 #define VOLUME_DISPLAY_TIME 2000         // czas wyświetlania głośności w ms
-#define RADIO_SWITCH_DISPLAY_TIME 400    // czas wyświetlania nazwy radia podczas przełączania
 
 // ===== BATTERY SETTINGS =====
 #define BATTERY_PIN 11                    // GPIO11 (ADC2_CH0)

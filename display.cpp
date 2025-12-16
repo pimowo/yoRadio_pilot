@@ -1,5 +1,6 @@
 #include "display.h"
 #include "battery.h"
+#include "network.h"
 #include "font5x7.h"
 #include <WiFi.h>
 
@@ -233,7 +234,6 @@ void drawScrollLine(int line, int scale) {
 void drawRadioOrRssiBottom() {
   const int yLine = 52;
   if (NUM_RADIOS > 1) {
-    extern int currentRadio;
     String radioText = " " + String(currentRadio + 1) + " ";
     // built-in font approximate width: 6 px per char at textSize=1
     int charWidth = 6;

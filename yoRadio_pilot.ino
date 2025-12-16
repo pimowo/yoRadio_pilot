@@ -55,7 +55,7 @@ void enterDeepSleep() {
 // ===== SETUP =====
 void setup() {
   Serial.begin(115200);
-  delay(200);  // UART stabilization delay
+  delay(200);  // UART stabilization delay (optional, helps with some USB-UART adapters)
 
   // Initialize default scrollStates to safe defaults
   for (int i = 0; i < 3; ++i) {

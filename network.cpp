@@ -94,6 +94,8 @@ void switchToRadio(int radioIndex) {
   if (webSocket.isConnected()) {
     webSocket.disconnect();
     wsConnected = false;
+    // Blocking delay is acceptable here as radio switching is user-initiated
+    // and happens rarely. Ensures clean socket closure before reconnecting.
     delay(200);  // Increased from 100ms to 200ms for better connection cleanup
   }
 
