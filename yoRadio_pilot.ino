@@ -147,6 +147,7 @@ bool lastDownState = HIGH;
 bool volumeChanging = false;
 unsigned long volumeChangeTime = 0;
 const unsigned long VOLUME_DISPLAY_TIME = 2000;  // 2 sekundy wyświetlania
+const unsigned long RADIO_SWITCH_DISPLAY_TIME = 400; // czas wyświetlania nazwy radia podczas przełączania
 
 // CENTER button long-press state for radio switching
 unsigned long centerPressStartTime = 0;
@@ -771,6 +772,7 @@ void switchToRadio(int radioIndex) {
   if (webSocket.isConnected()) {
     webSocket.disconnect();
     wsConnected = false;
+    delay(200);  // Increased from 100ms to 200ms for better connection cleanup
   }
 
   // Update current radio
@@ -805,6 +807,7 @@ void switchToRadio(int radioIndex) {
   DPRINTLN(":80/ws");
   webSocket.begin(RADIO_IPS[currentRadio], 80, "/ws");
   webSocket.onEvent(webSocketEvent);
+  webSocket.setReconnectInterval(3000);  // Faster retry: 3000ms instead of default 5000ms
 }
 
 void sendCommand(const char* cmd) {
@@ -956,6 +959,7 @@ void checkBatteryAndShutdown(float voltage) {
 
 void setup() {
   Serial.begin(115200);
+  delay(200);  // UART stabilization delay
 
   // Initialize default scrollStates to safe defaults
   for (int i = 0; i < 3; ++i) {
@@ -985,11 +989,15 @@ void setup() {
   DPRINT("\n\nStarting YoRadio OLED Display v");
   DPRINTLN(FIRMWARE_VERSION);
 
-  // Validate currentRadio index from RTC memory
+  // currentRadio persists through deep sleep (stored in RTC memory with RTC_DATA_ATTR)
+  // Only reset on invalid values, not on every boot
   if (currentRadio < 0 || currentRadio >= NUM_RADIOS) {
     DPRINT("Invalid currentRadio from RTC: ");
     DPRINTLN(currentRadio);
+    DPRINTLN("Resetting to default radio 0");
     currentRadio = 0;
+  } else {
+    DPRINTLN("currentRadio preserved from RTC memory");
   }
   DPRINT("Current radio: ");
   DPRINT(currentRadio + 1);
@@ -1063,9 +1071,40 @@ void setup() {
   DPRINT("Using static IP: ");
   DPRINTLN(STATIC_IP);
 
+  delay(100);  // Stabilization delay before WiFi.begin()
   WiFi.begin(WIFI_SSID, WIFI_PASS);
+  
+  // Explicit connection wait loop (max 15 seconds)
+  int attempts = 0;
+  const int maxAttempts = 30;  // 30 * 500ms = 15 seconds
+  while (WiFi.status() != WL_CONNECTED && attempts < maxAttempts) {
+    delay(500);
+    DPRINT(".");
+    attempts++;
+  }
+  DPRINTLN("");
+  
+  if (WiFi.status() == WL_CONNECTED) {
+    DPRINTLN("WiFi connected successfully!");
+    DPRINT("IP address: ");
+    DPRINTLN(WiFi.localIP());
+    wifiState = WIFI_OK;
+  } else {
+    DPRINTLN("WiFi connection failed!");
+    wifiState = WIFI_ERROR;
+  }
+  
   wifiTimer = millis();
-  wifiState = WIFI_CONNECTING;
+
+  // Initialize WebSocket if WiFi connected successfully
+  if (wifiState == WIFI_OK) {
+    DPRINT("Connecting to WebSocket at ");
+    DPRINT(RADIO_IPS[currentRadio]);
+    DPRINTLN(":80/ws");
+    webSocket.begin(RADIO_IPS[currentRadio], 80, "/ws");
+    webSocket.onEvent(webSocketEvent);
+    webSocket.setReconnectInterval(3000);  // Faster retry: 3000ms instead of default 5000ms
+  }
 
   // Inicjalizacja ArduinoOTA
   ArduinoOTA.setHostname(OTAhostname);
@@ -1145,6 +1184,7 @@ void loop() {
       DPRINTLN(":80/ws");
       webSocket.begin(RADIO_IPS[currentRadio], 80, "/ws");
       webSocket.onEvent(webSocketEvent);
+      webSocket.setReconnectInterval(3000);  // Faster retry: 3000ms instead of default 5000ms
     }
     if (millis() - wifiTimer > wifiTimeout) {
       DPRINTLN("WiFi connection timeout!");
