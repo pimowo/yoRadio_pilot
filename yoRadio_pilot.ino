@@ -9,7 +9,7 @@
 
 //==================================================================================================
 // firmware
-#define FIRMWARE_VERSION "0.3"           // wersja oprogramowania
+#define FIRMWARE_VERSION "0.4"           // wersja oprogramowania
 
 // ====================== USTAWIENIA / SETTINGS ======================
 // Debug UART messages: ustaw na 1 aby włączyć diagnostykę po UART, 0 aby wyłączyć
