@@ -1,4 +1,5 @@
 #include "display.h"
+#include "battery.h"
 #include "font5x7.h"
 #include <WiFi.h>
 
@@ -273,11 +274,6 @@ void drawRadioOrRssiBottom() {
 }
 
 void updateDisplay() {
-  extern int batteryPercent;
-  extern WifiState wifiState;
-  extern bool wsConnected;
-  extern unsigned long lastWebSocketMessage;
-  
   // Throttle display updates to DISPLAY_REFRESH_RATE_MS
   if (millis() - lastDisplayUpdate < DISPLAY_REFRESH_RATE_MS) {
     return;

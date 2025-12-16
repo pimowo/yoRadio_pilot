@@ -8,7 +8,7 @@
 
 // Global display variables
 extern Adafruit_SSD1306 display;
-extern ScrollConfig scrollConfs[3];
+extern const ScrollConfig scrollConfs[3];
 extern ScrollState scrollStates[3];
 extern int activeScrollLine;
 extern String prev_stacja;
