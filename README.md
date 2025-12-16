@@ -1,6 +1,8 @@
-# yoRadio_pilot v0.3
+# yoRadio_pilot v0.5.0
 
 Pilot zdalnego sterowania dla yoRadio - kompaktowy kontroler internetowego radia bazujący na ESP32-S3 Super Mini z wyświetlaczem OLED SSD1306.
+
+> **Wersja 0.5.0** - Profesjonalna refaktoryzacja kodu do modularnej architektury z poprawkami stabilności WiFi i WebSocket.
 
 ## 📋 Spis treści
 
@@ -436,7 +438,14 @@ ArduinoOTA.setPassword("admin");  // Opcjonalnie
 
 ```
 yoRadio_pilot/
-├── yoRadio_pilot.ino      # Główny plik projektu
+├── yoRadio_pilot.ino      # Główny plik projektu (setup + loop)
+├── config.h               # Wszystkie stałe konfiguracyjne
+├── types.h                # Definicje struktur (ScrollConfig, ScrollState, WifiState, BatteryFilter)
+├── display.h / display.cpp # Funkcje wyświetlacza (updateDisplay, przewijanie, rysowanie)
+├── network.h / network.cpp # Funkcje WiFi i WebSocket (webSocketEvent, switchToRadio)
+├── buttons.h / buttons.cpp # Logika obsługi przycisków
+├── battery.h / battery.cpp # Funkcje monitorowania baterii
+├── font5x7.h              # Dane czcionki
 ├── README.md              # Ten plik
 ├── LICENSE                # Licencja projektu
 └── docs/                  # Dokumentacja (opcjonalnie)
@@ -515,6 +524,20 @@ Ten projekt jest dostępny na licencji MIT. Zobacz plik `LICENSE` dla szczegół
 - Społeczność ESP32 - Za wsparcie i dokumentację
 
 ## 📊 Historia wersji
+
+### v0.5.0 (2025-12-16)
+- ✨ **Profesjonalna refaktoryzacja kodu** - podział na moduły
+- ✨ Nowa struktura plików: config.h, types.h, display.h/cpp, network.h/cpp, buttons.h/cpp, battery.h/cpp
+- ✨ Lepsza separacja odpowiedzialności i łatwiejsze utrzymanie kodu
+- 🐛 **Poprawki stabilności WiFi** - dodano opóźnienia stabilizacyjne i jawną pętlę oczekiwania na połączenie (max 15s)
+- 🐛 **Lepsza niezawodność WebSocket** - zwiększono opóźnienie rozłączenia do 200ms, szybszy retry (3000ms)
+- 🐛 **Poprawiona trwałość RTC** - zmienne przechowywane w pamięci RTC nie są resetowane przy każdym uruchomieniu
+- 📝 Dodano komentarze dokumentujące funkcje
+- 📝 Header guards we wszystkich plikach nagłówkowych
+
+### v0.4 (2025-12-15)
+- ✨ Poprawa wydajności wyświetlacza
+- 🐛 Drobne poprawki błędów
 
 ### v0.3 (2025-12-14)
 - ✨ Dodano obsługę wielu rádií (przełączanie długim CENTER)
