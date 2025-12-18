@@ -1,6 +1,7 @@
 #include "network.h"
 #include "display.h"
 #include <ArduinoJson.h>
+#include <esp_task_wdt.h>
 
 // Global network objects and state
 WebSocketsClient webSocket;
@@ -88,16 +89,20 @@ void switchToRadio(int radioIndex) {
   DPRINT(radioIndex + 1);
   DPRINT(" (");
   DPRINT(RADIO_IPS[radioIndex]);
-  DPRINTLN(")");
+  DPRINT(") - ");
+  DPRINTLN(RADIO_NAMES[radioIndex]);
 
   // Disconnect from current WebSocket
   if (webSocket.isConnected()) {
     webSocket.disconnect();
     wsConnected = false;
-    // Blocking delay is acceptable here as radio switching is user-initiated
-    // and happens rarely. Ensures clean socket closure before reconnecting.
-    delay(200);  // Increased from 100ms to 200ms for better connection cleanup
   }
+
+  // Wait for clean disconnect
+  delay(500);
+  
+  // Reset watchdog before long operation
+  esp_task_wdt_reset();
 
   // Update current radio
   currentRadio = radioIndex;
@@ -125,13 +130,38 @@ void switchToRadio(int radioIndex) {
     scrollStates[i].suffixWidth = 0;
   }
 
+  // Display radio name on screen during switch
+  display.clearDisplay();
+  display.fillRect(0, 0, SCREEN_WIDTH, 16, SSD1306_WHITE);
+  
+  String radioName = String(RADIO_NAMES[currentRadio]);
+  int nameWidth = getPixelWidth5x7(radioName, 2);
+  int nameX = (SCREEN_WIDTH - nameWidth) / 2;
+  
+  drawString5x7(nameX, 1, radioName, 2, SSD1306_BLACK);
+  
+  // Show IP address below name
+  String ipText = String(RADIO_IPS[currentRadio]);
+  int ipWidth = getPixelWidth5x7(ipText, 1);
+  int ipX = (SCREEN_WIDTH - ipWidth) / 2;
+  drawString5x7(ipX, 30, ipText, 1, SSD1306_WHITE);
+  
+  display.display();
+  
+  // Show radio name for configured time
+  delay(RADIO_SWITCH_DISPLAY_TIME);
+
   // Connect to new radio
   DPRINT("Connecting to WebSocket at ");
   DPRINT(RADIO_IPS[currentRadio]);
   DPRINTLN(":80/ws");
+  
   webSocket.begin(RADIO_IPS[currentRadio], 80, "/ws");
   webSocket.onEvent(webSocketEvent);
   webSocket.setReconnectInterval(WS_RECONNECT_INTERVAL_MS);  // Faster retry: 3000ms instead of default 5000ms
+  
+  // Reset watchdog after operation
+  esp_task_wdt_reset();
 }
 
 void sendCommand(const char* cmd) {
