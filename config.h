@@ -40,6 +40,14 @@ const char* RADIO_IPS[] = {
   "192.168.1.104",                       // Radio 2
   "192.168.1.133"                        // Radio 3
 };
+
+// Nazwy dla każdego radia (wyświetlane przy przełączaniu)
+const char* RADIO_NAMES[] = {
+  "Salon",                               // Nazwa dla Radio 1
+  "Kuchnia",                             // Nazwa dla Radio 2
+  "Sypialnia"                            // Nazwa dla Radio 3
+};
+
 #define NUM_RADIOS 3                     // liczba dostępnych radiów
 
 // ===== SLEEP SETTINGS =====
@@ -84,5 +92,8 @@ const char* RADIO_IPS[] = {
 // ===== WEBSOCKET SETTINGS =====
 #define WS_TIMEOUT_MS 10000              // 10 sekund timeout dla WebSocket
 #define WS_RECONNECT_INTERVAL_MS 3000    // 3 sekundy interwał reconnect
+
+// ===== RADIO SWITCH SETTINGS =====
+#define RADIO_SWITCH_DISPLAY_TIME 2000   // 2 sekundy wyświetlania nazwy radia przy przełączaniu
 
 #endif // CONFIG_H
