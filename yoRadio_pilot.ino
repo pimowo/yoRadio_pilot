@@ -9,37 +9,33 @@
 
 //==================================================================================================
 // firmware
-#define FIRMWARE_VERSION "0.4"           // wersja oprogramowania
+#define FIRMWARE_VERSION "0.3"           // wersja oprogramowania
 
 // ====================== USTAWIENIA / SETTINGS ======================
 // Debug UART messages: ustaw na 1 aby włączyć diagnostykę po UART, 0 aby wyłączyć
-#define DEBUG_UART 1
+#define DEBUG_UART 0
 
 // sieć
-#define WIFI_SSID   "pimowo"             // sieć 
-#define WIFI_PASS   "ckH59LRZQzCDQFiUgj" // hasło sieci
-#define STATIC_IP   "192.168.1.111"      // IP
-#define GATEWAY_IP  "192.168.1.1"        // brama
+#define WIFI_SSID "pimowo"               // sieć 
+#define WIFI_PASS "ckH59LRZQzCDQFiUgj"   // hasło sieci
+#define STATIC_IP "192.168.1.111"        // IP
+#define GATEWAY_IP "192.168.1.1"         // brama
 #define SUBNET_MASK "255.255.255.0"      // maska
-#define DNS1_IP     "192.168.1.1"        // DNS 1
-#define DNS2_IP     "8.8.8.8"            // DNS 2
-
+#define DNS1_IP "192.168.1.1"            // DNS 1
+#define DNS2_IP "8.8.8.8"                // DNS 2
 // OTA
 #define OTAhostname "yoRadio_pilot"      // nazwa dla OTA
 #define OTApassword "12345987"           // hasło dla OTA
-
 // yoRadio - multi-radio support
 const char* RADIO_IPS[] = {
-  "192.168.1.101",                       // Radio 1
+  "192.168.1.133",                       // Radio 1
   "192.168.1.104",                       // Radio 2
-  "192.168.1.133"                        // Radio 3
+  "192.168.1.103"                        // Radio 3
 };
-#define NUM_RADIOS 3                     // liczba dostępnych radiów
-
+#define NUM_RADIOS 1                     // liczba dostępnych radiów
 // uśpienie
 #define DEEP_SLEEP_TIMEOUT_SEC 60        // sekundy bezczynności przed deep sleep (podczas odtwarzania)
 #define DEEP_SLEEP_TIMEOUT_STOPPED_SEC 5 // sekundy bezczynności przed deep sleep (gdy zatrzymany)
-
 // klawiattura
 #define BTN_UP     7                     // pin GÓRA
 #define BTN_RIGHT  4                     // pin PRAWO
@@ -47,28 +43,14 @@ const char* RADIO_IPS[] = {
 #define BTN_LEFT   6                     // pin LEWO 
 #define BTN_DOWN   3                     // pin DÓŁ
 #define LONG_PRESS_TIME 2000             // czas long-press w ms (2 sekundy)
-
 // wyświetlacz
 #define OLED_BRIGHTNESS 10               // 0-15 (wartość * 16 daje zakres 0-240 dla kontrastu SSD1306)
 #define DISPLAY_REFRESH_RATE_MS 50       // odświeżanie ekranu (100ms = 10 FPS)
-
 // bateria
 #define BATTERY_LOW_BLINK_MS 500         // interwał mrugania słabej baterii
-
-// ===== BATERIA - ADC MONITORING =====
-#define BATTERY_PIN 11                    // GPIO11 (ADC2_CH0)
-#define BATTERY_SAMPLES 30                // Liczba próbek
-#define BATTERY_CHECK_INTERVAL_MS 10000   // Co 10 sekund
-#define BATTERY_CRITICAL 3.0              // Próg deep sleep
-#define ADC_CORRECTION_FACTOR 1.0         // Kalibracja
-
 // watchdog
 #define WDT_TIMEOUT 30                   // timeout watchdog w sekundach
 // ==================================================================================================
-
-// ===== I2C (ESP32-S3 Super Mini) =====
-#define I2C_SDA 8
-#define I2C_SCL 9
 
 // Debug helpers
 #if DEBUG_UART
@@ -94,27 +76,6 @@ Adafruit_NeoPixel strip(NUM_LEDS, LED_PIN, NEO_GRB + NEO_KHZ800);
 
 // Multi-radio support - current radio stored in RTC memory (persists through deep sleep)
 RTC_DATA_ATTR int currentRadio = 0;
-
-// ===== BATERIA - KLASA FILTRA EMA =====
-class BatteryFilter {
-  private:
-    float filtered;
-    bool initialized;
-  public:
-    BatteryFilter() : initialized(false) {}
-    float update(float raw) {
-      if (!initialized) {
-        filtered = raw;
-        initialized = true;
-      } else {
-        filtered = 0.15 * raw + 0.85 * filtered;
-      }
-      return filtered;
-    }
-};
-
-BatteryFilter batteryFilter;
-float lastBatteryVoltage = 3.7;
 
 int batteryPercent = 100;
 String meta = "";
@@ -853,107 +814,6 @@ void oledSetContrast(uint8_t c) {
   display.ssd1306_command(c);
 }
 
-// ===== BATERIA - FUNKCJE POMIARU =====
-
-// Median filter - usuwa spike'i od WiFi
-float medianFilter(int* data, int size) {
-  // Bubble sort (wystarczający dla 30 próbek)
-  for (int i = 0; i < size - 1; i++) {
-    for (int j = 0; j < size - i - 1; j++) {
-      if (data[j] > data[j + 1]) {
-        int temp = data[j];
-        data[j] = data[j + 1];
-        data[j + 1] = temp;
-      }
-    }
-  }
-  // Zwróć medianę
-  if (size % 2 == 0) {
-    return (data[size / 2 - 1] + data[size / 2]) / 2.0;
-  } else {
-    return data[size / 2];
-  }
-}
-
-// Odczyt napięcia baterii z triple filtering
-float readBatteryVoltage() {
-  int samples[BATTERY_SAMPLES];
-  
-  // Pobierz próbki
-  for (int i = 0; i < BATTERY_SAMPLES; i++) {
-    samples[i] = analogRead(BATTERY_PIN);
-    delayMicroseconds(500);  // Krótka przerwa między próbkami
-  }
-  
-  // Median filter
-  float medianValue = medianFilter(samples, BATTERY_SAMPLES);
-  
-  // Konwersja ADC → napięcie (dzielnik 1:1, zakres 0-3.3V dla ADC2)
-  // ADC 12-bit: 0-4095, voltage divider 1:1 (100k:100k) = Vbat/2
-  float voltage = (medianValue / 4095.0) * 3.3 * 2.0;
-  
-  // Korekcja kalibracyjna
-  voltage *= ADC_CORRECTION_FACTOR;
-  
-  // EMA filter
-  voltage = batteryFilter.update(voltage);
-  
-  return voltage;
-}
-
-// Mapowanie voltage → procent (nieliniowa krzywa Li-Ion)
-int voltageToPercent(float v) {
-  // 19-punktowa krzywa rozładowania Li-Ion (z ulepszonymi punktami w zakresie krytycznym)
-  const float voltages[] = {4.20, 4.15, 4.11, 4.08, 4.02, 3.98, 3.95, 3.91, 3.87, 3.85, 3.84, 3.82, 3.80, 3.79, 3.70, 3.60, 3.40, 3.20, 3.00};
-  const int percents[] =   {100,  95,   90,   85,   80,   70,   60,   50,   40,   30,   20,   15,   10,   5,    4,    3,    2,    1,    0};
-  const int points = 19;
-  
-  // Poniżej minimum
-  if (v <= voltages[points - 1]) return 0;
-  
-  // Powyżej maximum
-  if (v >= voltages[0]) return 100;
-  
-  // Interpolacja liniowa między punktami
-  for (int i = 0; i < points - 1; i++) {
-    if (v >= voltages[i + 1] && v <= voltages[i]) {
-      float ratio = (v - voltages[i + 1]) / (voltages[i] - voltages[i + 1]);
-      return percents[i + 1] + ratio * (percents[i] - percents[i + 1]);
-    }
-  }
-  
-  return 0;
-}
-
-// Sprawdzenie krytycznego poziomu baterii i shutdown
-void checkBatteryAndShutdown(float voltage) {
-  if (voltage < BATTERY_CRITICAL) {
-    DPRINTF("KRYTYCZNY POZIOM BATERII: %.2fV\n", voltage);
-    
-    // Wyświetl komunikat ostrzegawczy
-    display.clearDisplay();
-    display.fillRect(0, 0, SCREEN_WIDTH, 16, SSD1306_WHITE);
-    
-    String line1 = "BATERIA PUSTA!";
-    String line2 = "Naładuj baterię";
-    
-    int line1Width = getPixelWidth5x7(line1, 1);
-    int line2Width = getPixelWidth5x7(line2, 1);
-    int line1X = (SCREEN_WIDTH - line1Width) / 2;
-    int line2X = (SCREEN_WIDTH - line2Width) / 2;
-    
-    drawString5x7(line1X, 1, line1, 1, SSD1306_BLACK);
-    drawString5x7(line2X, 30, line2, 1, SSD1306_WHITE);
-    
-    display.display();
-    delay(3000);
-    
-    // Wyłącz wszystko i przejdź w deep sleep
-    DPRINTLN("Entering deep sleep due to low battery...");
-    enterDeepSleep();
-  }
-}
-
 void setup() {
   Serial.begin(115200);
 
@@ -1008,19 +868,6 @@ void setup() {
   pinMode(BTN_CENTER, INPUT_PULLUP);
   pinMode(BTN_LEFT, INPUT_PULLUP);
   pinMode(BTN_DOWN, INPUT_PULLUP);
-
-  // ===== BATERIA - INICJALIZACJA ADC =====
-  pinMode(BATTERY_PIN, INPUT);
-  analogReadResolution(12);
-  analogSetAttenuation(ADC_11db);
-  analogRead(BATTERY_PIN);  // Dummy read
-  delay(10);
-
-  // Pierwszy pomiar (przed WiFi - mniej szumu)
-  lastBatteryVoltage = readBatteryVoltage();
-  batteryPercent = voltageToPercent(lastBatteryVoltage);
-  checkBatteryAndShutdown(lastBatteryVoltage);
-  DPRINTF("Napięcie baterii: %.2fV (%d%%)\n", lastBatteryVoltage, batteryPercent);
 
   // === WYŁĄCZ WS2812 LED ===
   strip.begin();
@@ -1122,17 +969,6 @@ void loop() {
   ArduinoOTA.handle();
 
   webSocket.loop();
-
-  // ===== BATERIA - MONITORING CO 10 SEKUND =====
-  static unsigned long lastBatteryCheck = 0;
-  if (millis() - lastBatteryCheck >= BATTERY_CHECK_INTERVAL_MS) {
-    lastBatteryCheck = millis();
-    lastBatteryVoltage = readBatteryVoltage();
-    batteryPercent = voltageToPercent(lastBatteryVoltage);
-    checkBatteryAndShutdown(lastBatteryVoltage);
-    DPRINTF("Napięcie baterii: %.2fV (%d%%)\n", lastBatteryVoltage, batteryPercent);
-    esp_task_wdt_reset();
-  }
 
   if (wifiState == WIFI_CONNECTING) {
     if (WiFi.status() == WL_CONNECTED) {
