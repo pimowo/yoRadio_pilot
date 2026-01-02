@@ -766,16 +766,22 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
     wsDataReceived = false;
     lastWebSocketMessage = millis();
     
-    // Queue initial commands (non-blocking)
-    queueWSCommand("getindex=1");
-    queueWSCommand("get=volume");
-    queueWSCommand("get=nameset");
-    queueWSCommand("get=meta");
-    queueWSCommand("get=bitrate");
-    queueWSCommand("get=fmt");
-    queueWSCommand("get=playerwrap");
+    // Send critical commands immediately (like old code for reliable loading)
+    webSocket.sendTXT("getindex=1");
+    delay(50);
+    webSocket.sendTXT("get=nameset");
+    delay(50);
+    webSocket.sendTXT("get=meta");
+    delay(50);
+    webSocket.sendTXT("get=volume");
+    delay(50);
+    webSocket.sendTXT("get=bitrate");
+    delay(50);
+    webSocket.sendTXT("get=fmt");
+    delay(50);
+    webSocket.sendTXT("get=playerwrap");
     
-    DPRINTLN("Initial data requests queued");
+    DPRINTLN("Initial data requests sent");
     return;
   }
 
@@ -928,8 +934,10 @@ void enterDeepSleep() {
   WiFi.disconnect(true);
   WiFi.mode(WIFI_OFF);
   
-  // ESP32-C3: GPIO wakeup
+  // ESP32-C3: GPIO wakeup with proper configuration
   DPRINTLN("Configuring GPIO wakeup on GPIO4 (CENTER, LOW)...");
+  gpio_set_direction((gpio_num_t)BTN_CENTER, GPIO_MODE_INPUT);
+  gpio_set_pull_mode((gpio_num_t)BTN_CENTER, GPIO_PULLUP_ONLY);
   gpio_wakeup_enable((gpio_num_t)BTN_CENTER, GPIO_INTR_LOW_LEVEL);
   esp_sleep_enable_gpio_wakeup();
   
@@ -1061,7 +1069,7 @@ void setup() {
   // Timers
   lastActivityTime = millis();
   lastOledActivity = millis();
-  lastWebSocketMessage = millis();
+  lastWebSocketMessage = millis();  // Initialize to prevent immediate timeout
   lastDisplayUpdate = 0;
   wsConnectTime = millis();
   lastWatchdogReset = millis();
@@ -1165,37 +1173,39 @@ void loop() {
       wakeOLED();
     }
 
-    // UP - volume up
+    // UP - next station (edge-triggered, single press)
     if (curUp == LOW && lastUpState == HIGH) {
-      sendCommand("volp=1");
-      volumeChanging = true;
-      volumeChangeTime = millis();
+      sendCommand("next=1");
       anyButtonPressed = true;
     }
 
-    // DOWN - volume down
+    // DOWN - previous station (edge-triggered, single press)
     if (curDown == LOW && lastDownState == HIGH) {
-      sendCommand("volm=1");
-      volumeChanging = true;
-      volumeChangeTime = millis();
+      sendCommand("prev=1");
       anyButtonPressed = true;
     }
 
-    // CENTER - toggle play/pause
+    // CENTER - toggle play/pause (edge-triggered)
     if (curCenter == LOW && lastCenterState == HIGH) {
       sendCommand("toggle=1");
       anyButtonPressed = true;
     }
 
-    // LEFT - previous station
-    if (curLeft == LOW && lastLeftState == HIGH) {
-      sendCommand("prev=1");
+    // LEFT - volume down (continuous while held)
+    if (curLeft == LOW) {
+      sendCommand("volm=1");
+      volumeChanging = true;
+      volumeChangeTime = millis();
+      lastDisplayUpdate = 0;  // Force immediate display update
       anyButtonPressed = true;
     }
 
-    // RIGHT - next station
-    if (curRight == LOW && lastRightState == HIGH) {
-      sendCommand("next=1");
+    // RIGHT - volume up (continuous while held)
+    if (curRight == LOW) {
+      sendCommand("volp=1");
+      volumeChanging = true;
+      volumeChangeTime = millis();
+      lastDisplayUpdate = 0;  // Force immediate display update
       anyButtonPressed = true;
     }
 
