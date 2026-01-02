@@ -1,0 +1,15 @@
+# PlatformIO
+.pio/
+.vscode/
+.pioenvs/
+.piolibdeps/
+
+# Build artifacts
+*.o
+*.elf
+*.bin
+
+# Temporary files
+*.tmp
+*.bak
+*~
