@@ -303,7 +303,7 @@ void drawString5x7(int16_t x, int16_t y, const String &s, uint8_t scale, uint16_
 int getPixelWidth5x7(const String &s, uint8_t scale) {
   int glyphs = 0;
   const char *str = s.c_str();
-  for (size_t i = 0; i < s. length();) {
+  for (size_t i = 0; i < s.length();) {
     uint8_t c = (uint8_t)str[i];
     if (c < 128) { 
       glyphs++; 
@@ -319,8 +319,6 @@ int getPixelWidth5x7(const String &s, uint8_t scale) {
 }
 
 // ===== BATTERY ADC =====
-esp_adc_cal_characteristics_t adc_chars;
-
 void initBattery() {
   // Konfiguracja ADC oneshot
   adc_oneshot_unit_init_cfg_t init_config = {
