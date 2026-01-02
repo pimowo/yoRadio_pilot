@@ -335,14 +335,14 @@ void initBattery() {
   };
   ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, ADC_CHANNEL_0, &config));
 
-  // Kalibracja
-  adc_cali_line_fitting_config_t cali_config = {
+  // Kalibracja - ESP32-C3 używa curve fitting zamiast line fitting
+  adc_cali_curve_fitting_config_t cali_config = {
     .unit_id = ADC_UNIT_1,
     .atten = ADC_ATTEN_DB_12,
     .bitwidth = ADC_BITWIDTH_12,
   };
   
-  esp_err_t ret = adc_cali_create_scheme_line_fitting(&cali_config, &adc1_cali_handle);
+  esp_err_t ret = adc_cali_create_scheme_curve_fitting(&cali_config, &adc1_cali_handle);
   adc_calibrated = (ret == ESP_OK);
   
   DPRINTLN("Battery ADC initialized (GPIO0, divider 1:2)");
@@ -367,7 +367,7 @@ int readBatteryMillivolts() {
   
   voltage *= 2;  // Dzielnik 1:2
   
-  DPRINTF("Battery: ADC=%d, mV=%d\n", adc_raw, voltage);
+  DPRINTF("Battery: ADC=%lu, mV=%lu\n", (unsigned long)adc_raw, (unsigned long)voltage);
   
   return voltage;
 }
@@ -382,7 +382,7 @@ void updateBattery() {
   batteryPercent = map(batteryMillivolts, BATTERY_EMPTY_MV, BATTERY_FULL_MV, 0, 100);
   batteryPercent = constrain(batteryPercent, 0, 100);
   
-  DPRINTF("Battery: %dmV = %d%%\n", batteryMillivolts, batteryPercent);
+  DPRINTF("Battery: %lumV = %d%%\n", (unsigned long)batteryMillivolts, batteryPercent);
 }
 
 // ===== WEBSOCKET COMMAND QUEUE (non-blocking) =====
@@ -782,7 +782,7 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
   if (type == WStype_TEXT) {
     if (! wsDataReceived) {
       unsigned long loadTime = millis() - wsConnectTime;
-      DPRINTF("First data received after %lums\n", loadTime);
+      DPRINTF("First data received after %lums\n", (unsigned long)loadTime);
       wsDataReceived = true;
     }
     
@@ -1097,7 +1097,7 @@ void loop() {
     if (WiFi.status() == WL_CONNECTED) {
       DPRINTLN("WiFi connected!");
       DPRINTF("IP: %s\n", WiFi.localIP().toString().c_str());
-      DPRINTF("Signal: %d dBm\n", WiFi. RSSI());
+      DPRINTF("Signal: %ld dBm\n", (long)WiFi.RSSI());
       
       wifiState = WIFI_OK;
       wifiRetryCount = 0;
