@@ -1,11 +1,16 @@
-#include <Arduino.h>  // WAŻNE: dodaj na początku dla PlatformIO
+// ===== INCLUDES (na początku) =====
+#include <Arduino.h>
 #include <WiFi.h>
-#include <WebSocketsClient. h>
+#include <WebSocketsClient.h>
 #include <Adafruit_SSD1306.h>
 #include <ArduinoJson.h>
 #include <esp_task_wdt.h>
-#include <esp_adc_cal.h>
-#include <driver/adc.h>
+
+// Nowe API dla ADC (ESP32-C3)
+#include <esp_adc/adc_oneshot.h>
+#include <esp_adc/adc_cali.h>
+#include <esp_adc/adc_cali_scheme.h>
+
 #include "font5x7.h"
 
 //==================================================================================================
@@ -27,7 +32,7 @@
 #define USE_STATIC_IP 1
 
 // yoRadio - pojedyncze radio
-#define RADIO_IP "192.168.1.133"
+#define RADIO_IP "192.168.1.122"
 
 // Uśpienie
 #define DEEP_SLEEP_TIMEOUT_SEC 60        // deep sleep podczas odtwarzania
@@ -57,6 +62,10 @@
 #define BATTERY_DIVIDER_R1 100000        // 100kΩ (górny)
 #define BATTERY_DIVIDER_R2 100000        // 100kΩ (dolny) - dzielnik 1: 2
 #define BATTERY_LOW_BLINK_MS 500
+
+adc_oneshot_unit_handle_t adc1_handle;
+adc_cali_handle_t adc1_cali_handle = NULL;
+bool adc_calibrated = false;
 
 // Watchdog
 #define WDT_TIMEOUT 60
@@ -313,32 +322,52 @@ int getPixelWidth5x7(const String &s, uint8_t scale) {
 esp_adc_cal_characteristics_t adc_chars;
 
 void initBattery() {
-  // ESP32-C3: ADC1_CH0 = GPIO0
-  adc1_config_width(ADC_WIDTH_BIT_12); // 12-bit (0-4095)
-  adc1_config_channel_atten(ADC1_CHANNEL_0, ADC_ATTEN_DB_11); // 0-3.3V range
+  // Konfiguracja ADC oneshot
+  adc_oneshot_unit_init_cfg_t init_config = {
+    .unit_id = ADC_UNIT_1,
+  };
+  ESP_ERROR_CHECK(adc_oneshot_new_unit(&init_config, &adc1_handle));
+
+  // Konfiguracja kanału
+  adc_oneshot_chan_cfg_t config = {
+    .atten = ADC_ATTEN_DB_12,
+    .bitwidth = ADC_BITWIDTH_12,
+  };
+  ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, ADC_CHANNEL_0, &config));
+
+  // Kalibracja
+  adc_cali_line_fitting_config_t cali_config = {
+    .unit_id = ADC_UNIT_1,
+    .atten = ADC_ATTEN_DB_12,
+    .bitwidth = ADC_BITWIDTH_12,
+  };
   
-  // Kalibracja ADC (ESP32-C3 używa eFuse)
-  esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN_DB_11, ADC_WIDTH_BIT_12, 1100, &adc_chars);
+  esp_err_t ret = adc_cali_create_scheme_line_fitting(&cali_config, &adc1_cali_handle);
+  adc_calibrated = (ret == ESP_OK);
   
   DPRINTLN("Battery ADC initialized (GPIO0, divider 1:2)");
 }
 
 int readBatteryMillivolts() {
-  uint32_t adcSum = 0;
+  int adc_raw;
+  int voltage = 0;
+  int sum = 0;
   
-  // Uśrednij z wielu próbek
   for (int i = 0; i < BATTERY_SAMPLES; i++) {
-    adcSum += adc1_get_raw(ADC1_CHANNEL_0);
+    adc_oneshot_read(adc1_handle, ADC_CHANNEL_0, &adc_raw);
+    sum += adc_raw;
   }
-  uint32_t adcRaw = adcSum / BATTERY_SAMPLES;
+  adc_raw = sum / BATTERY_SAMPLES;
   
-  // Konwersja na mV (z kalibracją)
-  uint32_t voltage = esp_adc_cal_raw_to_voltage(adcRaw, &adc_chars);
+  if (adc_calibrated) {
+    adc_cali_raw_to_voltage(adc1_cali_handle, adc_raw, &voltage);
+  } else {
+    voltage = (adc_raw * 3300) / 4095;
+  }
   
-  // Dzielnik napięcia 1:2 (R1=R2=100kΩ) → mnożymy x2
-  voltage *= 2;
+  voltage *= 2;  // Dzielnik 1:2
   
-  DPRINTF("Battery:  ADC=%d, mV=%d\n", adcRaw, voltage);
+  DPRINTF("Battery: ADC=%d, mV=%d\n", adc_raw, voltage);
   
   return voltage;
 }
@@ -895,15 +924,14 @@ void enterDeepSleep() {
   DPRINTLN("Preparing deep sleep...");
   
   sleepOLED();
-  
   webSocket.disconnect();
   WiFi.disconnect(true);
   WiFi.mode(WIFI_OFF);
   
-  DPRINTLN("Configuring EXT0 wakeup on GPIO4 (CENTER button, LOW)...");
-  esp_sleep_enable_ext0_wakeup(GPIO_NUM_4, 0);
-  
-  esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON);
+  // ESP32-C3: GPIO wakeup
+  DPRINTLN("Configuring GPIO wakeup on GPIO4 (CENTER, LOW)...");
+  gpio_wakeup_enable((gpio_num_t)BTN_CENTER, GPIO_INTR_LOW_LEVEL);
+  esp_sleep_enable_gpio_wakeup();
   
   DPRINTLN("Entering deep sleep...");
   Serial.flush();
@@ -955,28 +983,31 @@ void connectWiFi() {
 
 void setup() {
   // ===== CPU FREQUENCY OPTIMIZATION =====
-  setCpuFrequencyMhz(80); // 80MHz zamiast 160MHz → oszczędność ~50%
-  
+  setCpuFrequencyMhz(80);
   Serial.begin(115200);
   
-  // Disable Bluetooth (oszczędność ~30mA)
   #ifdef CONFIG_BT_ENABLED
     btStop();
   #endif
   
   esp_sleep_wakeup_cause_t wakeupReason = esp_sleep_get_wakeup_cause();
   switch (wakeupReason) {
-    case ESP_SLEEP_WAKEUP_EXT0: DPRINTLN("Wakeup:  EXT0 (CENTER button)"); break;
+    case ESP_SLEEP_WAKEUP_GPIO:  DPRINTLN("Wakeup:  GPIO (CENTER button)"); break;
     case ESP_SLEEP_WAKEUP_UNDEFINED: DPRINTLN("Wakeup: Normal boot"); break;
     default: DPRINTF("Wakeup: %d\n", wakeupReason); break;
   }
 
   DPRINT("\n\nYoRadio OLED Remote v");
   DPRINTLN(FIRMWARE_VERSION);
-  DPRINTF("ESP32-C3 @ %dMHz\n", getCpuFrequencyMhz());
+  DPRINTF("ESP32-C3 @ %luMHz\n", (unsigned long)getCpuFrequencyMhz());
 
-  // Watchdog
-  esp_task_wdt_init(WDT_TIMEOUT, true);
+  // Watchdog - nowe API
+  esp_task_wdt_config_t wdt_config = {
+    .timeout_ms = WDT_TIMEOUT * 1000,
+    .idle_core_mask = 0,
+    .trigger_panic = true
+  };
+  esp_task_wdt_init(&wdt_config);
   esp_task_wdt_add(NULL);
   DPRINTLN("Watchdog initialized (60s)");
 
