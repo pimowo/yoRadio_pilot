@@ -1,0 +1,17 @@
+# Kompilacja (release)
+pio run -e release
+
+# Kompilacja (debug)
+pio run -e debug
+
+# Upload (release)
+pio run -e release -t upload
+
+# Monitor portu szeregowego
+pio device monitor
+
+# Czyszczenie cache
+pio run -t clean
+
+# Upload + Monitor (w jednym)
+pio run -e release -t upload -t monitor
