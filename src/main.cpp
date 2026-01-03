@@ -88,10 +88,10 @@ namespace WSHash {
 const char STR_GLOSNOSC[] PROGMEM = "GŁOŚNOŚĆ";
 const char STR_LACZE_YORADIO[] PROGMEM = "Łączę z yoRadio";
 const char STR_BRAK_WIFI[] PROGMEM = "Brak WiFi";
-const char STR_LACZE[] PROGMEM = "[Łączę]";
-const char STR_ZATRZYMANY[] PROGMEM = "[Zatrzymany]";
-const char STR_PAUZA[] PROGMEM = "[Pauza]";
-const char STR_BLAD[] PROGMEM = "[Błąd]";
+const char STR_LACZE[] PROGMEM = "Łączę";
+const char STR_ZATRZYMANY[] PROGMEM = "Zatrzymany";
+const char STR_PAUZA[] PROGMEM = "Pauza";
+const char STR_BLAD[] PROGMEM = "Błąd";
 const char scrollSuffix[] PROGMEM = " * ";
 
 //==================================================================================================

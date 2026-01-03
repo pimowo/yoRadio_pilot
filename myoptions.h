@@ -15,7 +15,7 @@
 #define USE_STATIC_IP 1                  // 1 = statyczne IP, 0 = DHCP
 
 // === YORADIO ====================================================================================
-#define YORADIO_IP "192.168.1.122"       // ← ZMIEŃ na IP twojego yoRadio
+#define YORADIO_IP "192.168.1.122"       // ZMIEŃ na IP twojego yoRadio
 
 // === WYŚWIETLACZ ================================================================================
 #define OLED_BRIGHTNESS 10               // 0-15 (wartość * 16 daje zakres 0-240 dla kontrastu SSD1306)
