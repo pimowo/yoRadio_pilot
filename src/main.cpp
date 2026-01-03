@@ -458,7 +458,7 @@ void prepareScroll(int line, const char* txt, int scale) {
   bool needsScroll = singleWidth > availWidth;
 
   scrollStates[line].singleTextWidth = singleWidth;
-  scrollStates[line]. pos = 0;
+  scrollStates[line].pos = 0;
   scrollStates[line].t_start = millis();
   scrollStates[line].t_last = millis();
   scrollStates[line].isMoving = false;
@@ -469,14 +469,14 @@ void prepareScroll(int line, const char* txt, int scale) {
     strcpy_P(suffix, scrollSuffix);
     int suffixWidth = getPixelWidth5x7(suffix, scale);
     
-    snprintf(scrollStates[line]. text, sizeof(scrollStates[line].text), 
+    snprintf(scrollStates[line].text, sizeof(scrollStates[line].text), 
              "%s%s%s", txt, suffix, txt);
     scrollStates[line].suffixWidth = suffixWidth;
     scrollStates[line].scrolling = true;
   } else {
     safeStrCopy(scrollStates[line].text, txt, sizeof(scrollStates[line].text));
     scrollStates[line].suffixWidth = 0;
-    scrollStates[line]. scrolling = false;
+    scrollStates[line].scrolling = false;
   }
 }
 
@@ -525,7 +525,7 @@ void updateScroll(int line) {
       scrollStates[activeScrollLine].t_start = now;
       scrollStates[activeScrollLine].t_last = now;
       scrollStates[activeScrollLine].pos = 0;
-      scrollStates[activeScrollLine]. isMoving = false;
+      scrollStates[activeScrollLine].isMoving = false;
     }
 
     state.t_last = now;
@@ -542,7 +542,7 @@ void drawScrollLine(int line, int scale) {
   if (line == 0) {
     drawString5x7(x, y, state.text, scale, SSD1306_BLACK);
   } else {
-    drawString5x7(x, y, state. text, scale, SSD1306_WHITE);
+    drawString5x7(x, y, state.text, scale, SSD1306_WHITE);
   }
 }
 
@@ -563,7 +563,7 @@ void drawRssiBottom() {
     if (i < bars)
       display.fillRect(x, FOOTER_Y + (8 - barHeights[i]), barWidth, barHeights[i], SSD1306_WHITE);
     else
-      display. drawFastHLine(x, FOOTER_Y + (8 - barHeights[i]), barWidth, SSD1306_WHITE);
+      display.drawFastHLine(x, FOOTER_Y + (8 - barHeights[i]), barWidth, SSD1306_WHITE);
   }
 }
 
@@ -624,7 +624,7 @@ void drawVolumeScreen() {
 
   char ipText[24];
   IPAddress ip = WiFi.localIP();
-  snprintf(ipText, sizeof(ipText), "IP:%d.%d.%d. %d", ip[0], ip[1], ip[2], ip[3]);
+  snprintf(ipText, sizeof(ipText), "IP:%d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3]);
   drawString5x7(2, VOL_SCREEN_IP_Y, ipText, 1, SSD1306_WHITE);
 }
 
@@ -834,7 +834,7 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
 
     // Static allocation - saves 1KB stack per call
     static StaticJsonDocument<1024> doc;
-    doc. clear();
+    doc.clear();
     
     DeserializationError error = deserializeJson(doc, payload, length);
     
@@ -844,13 +844,13 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
       return;
     }
     
-    if (doc. overflowed()) {
+    if (doc.overflowed()) {
       DPRINTLN("JSON buffer overflow!");
       return;
     }
 
-    if (doc. containsKey("payload")) {
-      JsonArray arr = doc["payload"]. as<JsonArray>();
+    if (doc.containsKey("payload")) {
+      JsonArray arr = doc["payload"].as<JsonArray>();
       
       portENTER_CRITICAL(&wsMux);
       
@@ -913,7 +913,7 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
           }
           
           case WSHash::bitrate: {
-            if (obj["value"]. is<int>()) {
+            if (obj["value"].is<int>()) {
               bitrate = obj["value"];
             }
             break;
@@ -1037,7 +1037,7 @@ void connectWiFi() {
   
   #if USE_STATIC_IP
     IPAddress staticIP, gateway, subnet, dns1, dns2;
-    staticIP. fromString(STATIC_IP);
+    staticIP.fromString(STATIC_IP);
     gateway.fromString(GATEWAY_IP);
     subnet.fromString(SUBNET_MASK);
     dns1.fromString(DNS1_IP);
@@ -1158,7 +1158,7 @@ void setup() {
   delay(100);
 
   for (int i = 0; i < 3; ++i) {
-    scrollStates[i]. pos = 0;
+    scrollStates[i].pos = 0;
     scrollStates[i].t_last = 0;
     scrollStates[i].t_start = 0;
     scrollStates[i].scrolling = false;
@@ -1302,7 +1302,7 @@ void loop() {
           wifiState = WIFI_ERROR;
           wifiRetryTimer = millis();
         } else {
-          DPRINTLN("Retrying.. .");
+          DPRINTLN("Retrying...");
           WiFi.disconnect();
           delay(100);
           connectWiFi();
@@ -1323,7 +1323,7 @@ void loop() {
   } 
   else if (wifiState == WIFI_ERROR) {
     if ((millis() - wifiRetryTimer) >= wifiRetryInterval) {
-      DPRINTLN("Retrying from ERROR.. .");
+      DPRINTLN("Retrying from ERROR..");
       wifiRetryCount = 0;
       connectWiFi();
     }
